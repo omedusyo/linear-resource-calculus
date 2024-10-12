@@ -1,0 +1,12 @@
+
+cargo build
+
+cargo run
+
+if eq(2, add(1, 1)) { 12 } { 3 }
+
+let { inc = fn { x . add($x, 1) } . app($inc, 5) }
+
+// cartesian vs linear identifiers
+fn f(x, y, z)[u, v] {
+}
