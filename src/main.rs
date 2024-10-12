@@ -151,6 +151,8 @@ pub fn parse_token(input: &str) -> IResult<&str, Token> {
             // Note how there's no consumption of whitespace.
             Ok((input, Token::VarUseSymbol))
         },
+        // TODO: We should allow '-' as a name on its own. We need to check the char following '-'
+        // is not a digit, in which case we are looking at identifier.
         c if c == '-' || c.is_digit(10) => {
             // 123
             // -123
@@ -259,9 +261,9 @@ pub fn identifier<'a>(id_str: &'a str) -> impl Fn(TokenStream<'a>) -> IResult0<'
 // ===parser===
 fn identifier_to_operation_code(str: &str) -> Option<OperationCode> {
     match str {
-        "add" => Some(OperationCode::Add),
-        "mul" => Some(OperationCode::Mul),
-        "eq" => Some(OperationCode::Eq),
+        "+" => Some(OperationCode::Add),
+        "*" => Some(OperationCode::Mul),
+        "==" => Some(OperationCode::Eq),
         _ => None
     }
 }
