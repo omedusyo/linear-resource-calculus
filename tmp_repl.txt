@@ -3,6 +3,10 @@ cargo build
 
 cargo run
 
+let { foo = 123 . $foo }
+
+$bar
+
 if eq(2, add(1, 1)) { 12 } { 3 }
 
 let { inc = fn { x . add($x, 1) } . app($inc, 5) }
