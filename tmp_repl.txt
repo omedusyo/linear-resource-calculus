@@ -44,23 +44,52 @@ let { inc = fn { x . +($x, 1) } . app($inc, 5) }
 
 #nil ()
 
-#cons(20, $cons(30, $nil()))
+#cons(20, #cons(30, #nil()))
+
+(123)
+
+((123))
+
+#true()
 
 (30, 50)
 
-$nil()
+#nil ()
+
+:def fn fct(x) { if ==($x, 0) { 1 } { *($x, fct(sub($x, 1))) } }
+
+fct(5)
+
+()
+
+#cons(1, 2)
+
+#cons 123 ()
 
 
+match #foo (3, 4) { #bar () . 123 | #foo (x, y) . $x }
+
+match #foo #bar () { #foo #bar x . $x | #foo #yeesh y . $y }
+
+match #foo #yeesh 512 { #foo #bar x . $x | #foo #yeesh y . $y }
+
+match #foo #yeesh 512 { #foo #yeesh y . $y | #foo #bar x . $x }
+
+
+:def fn map(f, xs) { match $xs { #nil() . #nil() | #cons(x, xs) . #cons(app($f, $x), map($f, $xs)) } }
+
+#cons(20, #cons(10, #nil()))
+
+map(fn { x . *($x, $x) }, #cons(10, #nil()))
+
+:def fn range-iter(n, i) { if ==($n, $i) { #nil() } { #cons($i, range-iter($n, +($i, 1))) } }
+
+range-iter(5, 0)
+
+map(fn { x . *($x, $x) }, range-iter(5, 0))
 
 // cartesian vs linear identifiers
 fn f(x, y, z)[u, v] {
 }
 
-// I need to introduce function declarations
-fn f(x, y, z) {
-  let {
-    square = fn { x . *($x, $x) } .
-    +(app($square, $x), app($square, $y))
-  }
-}
 

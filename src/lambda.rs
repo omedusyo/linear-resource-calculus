@@ -15,6 +15,7 @@ fn identifier_to_operation_code(str: &str) -> Option<OperationCode> {
     match str {
         "+" => Some(OperationCode::Add),
         "*" => Some(OperationCode::Mul),
+        "sub" => Some(OperationCode::Sub),
         "==" => Some(OperationCode::Eq),
         _ => None
     }
@@ -24,6 +25,10 @@ fn parse_operator_arguments(op_code: OperationCode, input: TokenStream) -> IResu
     use OperationCode::*;
     match op_code {
         Add => {
+            let (input, (e0, e1)) = parse_arg_list2(input)?;
+            Ok((input, Expression::operation_application(op_code, e0, e1)))
+        },
+        Sub => {
             let (input, (e0, e1)) = parse_arg_list2(input)?;
             Ok((input, Expression::operation_application(op_code, e0, e1)))
         },
@@ -73,6 +78,43 @@ pub fn parse_function_declaration(input: TokenStream) -> IResult0<FunctionDefini
     Ok((input, FunctionDefinition { name: FunctionName::new(function_name_str), parameters, body }))
 }
 
+fn parse_pattern_sequence(input: TokenStream) -> IResult0<Vec<Pattern>> {
+    delimited_vector(parse_pattern, token(TokenType::Comma))(input)
+}
+
+fn parse_pattern(input: TokenStream) -> IResult0<Pattern> {
+    let (input, token0) = anytoken(input)?;
+    use Token::*;
+    match token0 {
+        TagSymbol => {
+            // Tag pattern
+            let (input, var_name) = anyidentifier(input)?;
+            let (input, pattern) = parse_pattern(input)?;
+            Ok((input, Pattern::Tagged(Tag::new(var_name), Box::new(pattern))))
+        },
+        OpenParen => {
+            // Tuple pattern
+            let (input, patterns) = parse_pattern_sequence(input)?;
+            let (input, _) = token(TokenType::CloseParen)(input)?;
+            Ok((input, Pattern::Tuple(patterns)))
+        },
+        Identifier(var_name) => Ok((input, Pattern::Variable(VariableName::new(var_name)))),
+        _ => Err(nom::Err::Error(nom::error::Error { input: input.input, code: nom::error::ErrorKind::Alt })),
+    }
+}
+
+pub fn parse_branch(input: TokenStream) -> IResult0<PatternBranch> {
+    let (input, pattern) = parse_pattern(input)?;
+    let (input, _) = token(TokenType::BindingSeparator)(input)?;
+    let (input, body) = parse_expression(input)?;
+
+    Ok((input, PatternBranch { pattern, body }))
+}
+
+pub fn parse_branches(input: TokenStream) -> IResult0<Vec<PatternBranch>> {
+    delimited_vector(parse_branch, token(TokenType::OrSeparator))(input)
+}
+
 pub fn parse_expression(input: TokenStream) -> IResult0<Expression> {
     let (input, token0) = anytoken(input)?;
     use Token::*;
@@ -84,7 +126,6 @@ pub fn parse_expression(input: TokenStream) -> IResult0<Expression> {
         },
         TagSymbol => {
             let (input, tag) = anyidentifier(input)?;
-            dbg!(&tag);
             let (input, arg) = parse_expression(input)?;
             Ok((input, Expression::tagged(Tag::new(tag), arg)))
         },
@@ -125,6 +166,14 @@ pub fn parse_expression(input: TokenStream) -> IResult0<Expression> {
                     let (input, _) = token(TokenType::CloseCurly)(input)?;
 
                     Ok((input, Expression::if_(arg, then_branch, else_branch)))
+                },
+                "match" => {
+                    let (input, arg) = parse_expression(input)?;
+                    let (input, _) = token(TokenType::OpenCurly)(input)?;
+                    let (input, branches) = parse_branches(input)?;
+                    let (input, _) = token(TokenType::CloseCurly)(input)?;
+
+                    Ok((input, Expression::match_(arg, branches)))
                 },
                 "fn" => {
                     // fn { x . add($x, 1) }
@@ -258,6 +307,9 @@ pub enum Expression0 {
     // IfIntEqThenElse {  }
     VarUse(VariableName),
     Let { arg: Expression, var: VariableName, body: Expression },
+    // WARNING: Pattern matching on tuples commits! Once the algorithms enters a tuple, it won't be
+    // able to go back.
+    Match { arg: Expression, branches: Vec<PatternBranch> },
     // Note that the body is in Rc. This is because when evaluating a lambda expression,
     // a closure value is createad which references this body.
     // TODO: If I passed the expression not as a reference, but directly,
@@ -268,6 +320,65 @@ pub enum Expression0 {
     Apply(Expression, Expression),
 }
 
+#[derive(Debug)]
+pub struct PatternBranch {
+    pub pattern: Pattern,
+    pub body: Expression,
+}
+
+#[derive(Debug)]
+pub enum Pattern {
+    Variable(VariableName),
+    Tagged(Tag, Box<Pattern>),
+    Tuple(Vec<Pattern>),
+}
+
+type PatternMatchResult = Option<Vec<(VariableName, Value)>>;
+
+impl Pattern {
+    // The only interesting thing is the type of `val`.
+    // This could be implemented with `val: Value`, but it would have to be way more complicated,
+    // where if we fail a deep pattern, we have to reconstruct the value as it was before,
+    // so we can reuse is for the next match. This reconstruction is expensive.
+    //
+    // Now we're doing it with `val: &Value`, which means we'll have to clone value a bunch of
+    // times, which is also not great.
+    //
+    // Ideal situation would analyze the pattern beforehand and factor it out in such a way,
+    // that we never have to backtrack.
+    fn match_(&self, val: &Value) -> PatternMatchResult {
+        fn loop_(pattern: &Pattern, val: &Value, mut bindings: Vec<(VariableName, Value)>) -> PatternMatchResult {
+            use Pattern::*;
+            match (pattern, val) {
+                (Variable(var), val) => {
+                    bindings.push((var.clone(), val.clone()));
+                    Some(bindings)
+                },
+                (Tagged(tag0, pattern), Value::Tagged(tag1, val)) => {
+                    if tag0 == tag1 {
+                        loop_(pattern, val, bindings)
+                    } else {
+                        None
+                    }
+                },
+                (Tuple(patterns), Value::Tuple(values)) => {
+                    if patterns.len() == values.len() {
+                        for (i, val) in values.into_iter().enumerate() {
+                            bindings = loop_(&patterns[i], val, bindings)?
+                        }
+                        Some(bindings)
+                    } else {
+                        None
+                    }
+                },
+                _ => None
+            }
+        }
+
+        loop_(self, val, vec![])
+    }
+}
+
 impl Expression {
     fn call(fn_name: FunctionName, args: Vec<Self>) -> Self { Self(Rc::new(Expression0::Call(fn_name, args))) }
     fn tagged(tag: Tag, e: Expression) -> Self { Self(Rc::new(Expression0::Tagged(tag, e))) }
@@ -276,6 +387,7 @@ impl Expression {
     fn bool(b: bool) -> Self { Self(Rc::new(Expression0::Bool(b))) }
     fn operation_application(op_code: OperationCode, e0: Self, e1: Self) -> Self { Self(Rc::new(Expression0::OperationApplication(op_code, e0, e1))) }
     fn if_(e: Self, e0: Self, e1: Self) -> Self { Self(Rc::new(Expression0::If(e, e0, e1))) }
+    fn match_(arg: Self, branches: Vec<PatternBranch>) -> Self { Self(Rc::new(Expression0::Match { arg, branches })) }
     fn var_use(var: VariableName) -> Self { Self(Rc::new(Expression0::VarUse(var))) }
     fn let_(arg: Self, var: VariableName, body: Self) -> Self { Self(Rc::new(Expression0::Let { arg, var, body })) }
     fn lambda(var: VariableName, body: Self) -> Self { Self(Rc::new(Expression0::Lambda { var, body })) }
@@ -286,6 +398,7 @@ impl Expression {
 #[derive(Debug, PartialEq)]
 pub enum OperationCode {
     Add,
+    Sub,
     Mul,
     Eq,
 }
@@ -295,7 +408,7 @@ pub enum Value {
     Int(i32),
     Bool(bool),
     Tagged(Tag, Box<Value>), // It's interesting that I don't have to do Rc here.
-    Tuple(Rc<Vec<Value>>), // Would be cool if we could use Rc<[Value]>, since we don't need to resize
+    Tuple(Vec<Value>), // Would be cool if we could use Rc<[Value]>, since we don't need to resize
                            // tuples at runtime.
                            // But it seems you can create an array of only statically known size.
                            // 
@@ -352,6 +465,7 @@ pub enum Error {
     FunctionLookupFailure(FunctionName),
     FunctionCallArityMismatch { fn_name: FunctionName, expected: usize, received: usize },
     VariableLookupFailure(VariableName),
+    UnableToFindMatchingPattern,
 }
 
 // ===Environment===
@@ -439,7 +553,7 @@ fn eval(program: &Program, env: &Env, e: &Expression) -> Result<Value, Error> {
             for arg in &*args {
                 values.push(eval(program, env, arg)?)
             }
-            Ok(Value::Tuple(Rc::new(values)))
+            Ok(Value::Tuple(values))
         },
         Int(x) => Ok(Value::Int(*x)),
         Bool(x) => Ok(Value::Bool(*x)),
@@ -451,6 +565,7 @@ fn eval(program: &Program, env: &Env, e: &Expression) -> Result<Value, Error> {
                     use OperationCode::*;
                     match code {
                         Add => Ok(Value::Int(x0 + x1)),
+                        Sub => Ok(Value::Int(x0 - x1)),
                         Mul => Ok(Value::Int(x0 * x1)),
                         Eq => Ok(Value::Bool(x0 == x1)),
                     }
@@ -477,6 +592,19 @@ fn eval(program: &Program, env: &Env, e: &Expression) -> Result<Value, Error> {
                 }
                 _ => todo!(),
             }
+        },
+        Match { arg, branches } => {
+            let arg_value = eval(program, env, arg)?;
+            for branch in branches {
+                match branch.pattern.match_(&arg_value) {
+                    Some(bindings) => {
+                        let env = env.clone().extend_many(bindings);
+                        return eval(program, &env, &branch.body)
+                    },
+                    None => {},
+                }
+            }
+            Err(Error::UnableToFindMatchingPattern)
         },
         VarUse(var_name) => env.get(var_name.clone()),
         Let { arg, var, body } => {
