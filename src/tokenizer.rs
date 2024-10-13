@@ -16,6 +16,7 @@ pub enum Token {
     BindingSeparator,
     Comma,
     VarUseSymbol,
+    TagSymbol,
     Int(i32),
     End,
 }
@@ -31,6 +32,7 @@ pub enum TokenType {
     BindingSeparator,
     Comma,
     VarUseSymbol,
+    TagSymbol,
     Int,
     End,
 }
@@ -48,6 +50,7 @@ impl Token {
             BindingSeparator => TokenType::BindingSeparator,
             Comma => TokenType::Comma,
             VarUseSymbol => TokenType::VarUseSymbol,
+            TagSymbol => TokenType::TagSymbol,
             Int(_) => TokenType::Int,
             End => TokenType::End,
         }
@@ -60,14 +63,14 @@ impl Token {
 
 fn is_forbiden_char(c: char) -> bool {
     match c {
-        '(' | ')' | '{' | '}' | '.' | ',' | '$' | ' ' | '\t' | '\r' | '\n' => true,
+        '(' | ')' | '{' | '}' | '.' | ',' | '$' | '#' | ' ' | '\t' | '\r' | '\n' => true,
         _ => false,
     }
 }
 
 pub fn parse_identifier(input: &str) -> IResult<&str, String> {
-    // Identifier can't start with a char in "(){},.$-012345689=".
-    // Afterwards we have a sequence of any chars except those contained in "(){},.$" or
+    // Identifier can't start with a char in "(){},.$#-012345689=".
+    // Afterwards we have a sequence of any chars except those contained in "(){},.$#" or
     // whitespace.
     // We also allow the identifier to start with double equals e.g. "==" or "==foo"
     // VALID: "foo", "bar123", "_123", "_-_-_", "<=", "+", "*", "%", "foo!", "bar?",
@@ -133,6 +136,11 @@ pub fn parse_token(input: &str) -> IResult<&str, Token> {
             let (input, _) = anychar(input)?;
             // Note how there's no consumption of whitespace.
             Ok((input, Token::VarUseSymbol))
+        },
+        '#' => {
+            let (input, _) = anychar(input)?;
+            // Note how there's no consumption of whitespace.
+            Ok((input, Token::TagSymbol))
         },
         // TODO: We should allow '-' as a name on its own. We need to check the char following '-'
         // is not a digit, in which case we are looking at identifier.

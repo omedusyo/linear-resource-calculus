@@ -5,9 +5,20 @@ cargo run
 
 let { foo = 123 . $foo }
 
+fn { x . $x }
+
 :def fn f(x) { $x }
 
 f(123)
+
+
+#cons 
+
+#nil
+
+#cons(123, #nil)
+
+#pair(#foo(#nil), #pair())
 
 :def fn square(x) { *($x, $x) }
 
@@ -29,6 +40,18 @@ let { x = 6 . if ==(2, +(1, 1)) { 12 } { *(3, $x) } }
 
 let { inc = fn { x . +($x, 1) } . app($inc, 5) }
 
+(1, 2, 3)
+
+#nil ()
+
+#cons(20, $cons(30, $nil()))
+
+(30, 50)
+
+$nil()
+
+
+
 // cartesian vs linear identifiers
 fn f(x, y, z)[u, v] {
 }
@@ -40,3 +63,4 @@ fn f(x, y, z) {
     +(app($square, $x), app($square, $y))
   }
 }
+

@@ -82,6 +82,18 @@ pub fn parse_expression(input: TokenStream) -> IResult0<Expression> {
             let (input, var_name) = anyidentifier(input)?;
             Ok((input, Expression::var_use(VariableName::new(var_name))))
         },
+        TagSymbol => {
+            let (input, tag) = anyidentifier(input)?;
+            dbg!(&tag);
+            let (input, arg) = parse_expression(input)?;
+            Ok((input, Expression::tagged(Tag::new(tag), arg)))
+        },
+        OpenParen => {
+            // tuple
+            let (input, args) = expression_vector(input)?;
+            let (input, _) = token(TokenType::CloseParen)(input)?;
+            Ok((input, Expression::tuple(args)))
+        },
         Identifier(identifier) => {
             match &identifier[..] {
                 "true" => Ok((input, Expression::bool(true))),
@@ -162,6 +174,9 @@ pub struct VariableName(pub Rc<String>);
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct FunctionName(pub Rc<String>);
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Tag(pub Rc<String>); // This is basically constructor name.
+
 impl VariableName {
     fn new(str: String) -> Self {
         Self(Rc::new(str))
@@ -169,6 +184,12 @@ impl VariableName {
 }
 
 impl FunctionName {
+    fn new(str: String) -> Self {
+        Self(Rc::new(str))
+    }
+}
+
+impl Tag {
     fn new(str: String) -> Self {
         Self(Rc::new(str))
     }
@@ -227,6 +248,8 @@ pub struct Expression(pub Rc<Expression0>);
 #[derive(Debug)]
 pub enum Expression0 {
     Call(FunctionName, Vec<Expression>),
+    Tagged(Tag, Expression),
+    Tuple(Vec<Expression>),
     Int(i32),
     Bool(bool),
     OperationApplication(OperationCode, Expression, Expression),
@@ -247,6 +270,8 @@ pub enum Expression0 {
 
 impl Expression {
     fn call(fn_name: FunctionName, args: Vec<Self>) -> Self { Self(Rc::new(Expression0::Call(fn_name, args))) }
+    fn tagged(tag: Tag, e: Expression) -> Self { Self(Rc::new(Expression0::Tagged(tag, e))) }
+    fn tuple(args: Vec<Expression>) -> Self { Self(Rc::new(Expression0::Tuple(args))) }
     fn int(x: i32) -> Self { Self(Rc::new(Expression0::Int(x))) }
     fn bool(b: bool) -> Self { Self(Rc::new(Expression0::Bool(b))) }
     fn operation_application(op_code: OperationCode, e0: Self, e1: Self) -> Self { Self(Rc::new(Expression0::OperationApplication(op_code, e0, e1))) }
@@ -265,10 +290,16 @@ pub enum OperationCode {
     Eq,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Value {
     Int(i32),
     Bool(bool),
+    Tagged(Tag, Box<Value>), // It's interesting that I don't have to do Rc here.
+    Tuple(Rc<Vec<Value>>), // Would be cool if we could use Rc<[Value]>, since we don't need to resize
+                           // tuples at runtime.
+                           // But it seems you can create an array of only statically known size.
+                           // 
+                           // Note really sure about the Rc above.
     // TODO: When adding a List as a value, remember to use Rc, since we're cloning values.
     // TODO: Why does the body have to be an Rc?
     //       Can it be a Box? It can't be...
@@ -278,21 +309,10 @@ pub enum Value {
     //       Hmm, I feel like body has to be in Rc...
     //       since conceptually multiple closures with differing captured environments
     //       could point to the same body expression.
-    Closure { env: Env, var: VariableName, body: Expression },
+    Closure { captured_env: Env, var: VariableName, body: Expression },
     // But remember that to evaluate closure, we'll have to evaluate the underlying expression (in
     // the captured environment). But `eval_direct` takes ownership of the Expression.
     // So it seems that
-}
-
-impl Clone for Value {
-    fn clone(&self) -> Self {
-        use Value::*;
-        match self {
-            Int(x) => Int(*x),
-            Bool(b) => Bool(*b),
-            Closure { env, var, body } => Closure { env: env.clone(), var: var.clone(), body: body.clone() },
-        }
-    }
 }
 
 impl fmt::Display for Value {
@@ -301,8 +321,26 @@ impl fmt::Display for Value {
         match self {
             Int(x) => write!(f, "{}", x),
             Bool(b) => write!(f, "{}", b),
-            Closure { ..  } => write!(f, "#[closure]"),
+            Tagged(tag, val) => write!(f, "{} {}", tag, val),
+            Tuple(values) => {
+                write!(f, "(")?;
+                let mut values = (&**values).iter().peekable();
+                while let Some(val) = values.next() {
+                    match values.peek() {
+                        Some(_) => write!(f, "{}, ", val)?,
+                        None => write!(f, "{}", val)?,
+                    }
+                }
+                write!(f, ")")
+            },
+            Closure { ..  } => write!(f, "@{{...}}"),
         }
+    }
+}
+
+impl fmt::Display for Tag {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "#{}", self.0)
     }
 }
 
@@ -392,6 +430,17 @@ fn eval(program: &Program, env: &Env, e: &Expression) -> Result<Value, Error> {
             }
             apply_function(program, fn_name.clone(), values)
         },
+        Tagged(tag, e) => {
+            let val = eval(program, env, e)?;
+            Ok(Value::Tagged(tag.clone(), Box::new(val)))
+        },
+        Tuple(args) => {
+            let mut values: Vec<Value> = Vec::with_capacity((&*args).len());
+            for arg in &*args {
+                values.push(eval(program, env, arg)?)
+            }
+            Ok(Value::Tuple(Rc::new(values)))
+        },
         Int(x) => Ok(Value::Int(*x)),
         Bool(x) => Ok(Value::Bool(*x)),
         OperationApplication(code, e0, e1) => {
@@ -436,10 +485,10 @@ fn eval(program: &Program, env: &Env, e: &Expression) -> Result<Value, Error> {
             eval(program, &env, body)
         },
         Lambda { var, body } => {
-            Ok(Value::Closure { env: env.clone(), var: var.clone(), body: body.clone() })
+            Ok(Value::Closure { captured_env: env.clone(), var: var.clone(), body: body.clone() })
         },
         LambdaRec { rec_var, var, body } => {
-            let closure = Value::Closure { env: env.clone(), var: var.clone(), body: body.clone() };
+            let closure = Value::Closure { captured_env: env.clone(), var: var.clone(), body: body.clone() };
             let env = Rc::new(env.clone().extend(rec_var.clone(), closure));
             // closure.env = env;
             // TODO: How the hell can I do this? I probably need interior mutability for this,
@@ -449,7 +498,7 @@ fn eval(program: &Program, env: &Env, e: &Expression) -> Result<Value, Error> {
         Apply(e0, e1) => {
             let closure = eval(program, env, e0)?;
             match closure {
-                Value::Closure { env: closure_env, var, body } => {
+                Value::Closure { captured_env: closure_env, var, body } => {
                     let arg_value = eval(program, env, e1)?;
                     eval(program, &closure_env.extend(var, arg_value), &body)
                 },
