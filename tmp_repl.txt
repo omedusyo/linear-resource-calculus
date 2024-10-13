@@ -5,9 +5,25 @@ cargo run
 
 let { foo = 123 . $foo }
 
+:def fn f(x) { $x }
+
+f(123)
+
+:def fn square(x) { *($x, $x) }
+
+square(3)
+
+:def fn pyth(x, y) { +(square($x), square($y)) }
+
+pyth(3, 4)
+
+:list fn
+
 $bar
 
 let { x = 6 . if ==(2, +(1, 1)) { 12 } { *(3, $x) } }
+
+:def fn foo(x) { 1 }
 
 *(3, 4)
 
