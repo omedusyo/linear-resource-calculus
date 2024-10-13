@@ -25,15 +25,15 @@ fn parse_operator_arguments(op_code: OperationCode, input: TokenStream) -> IResu
     match op_code {
         Add => {
             let (input, (e0, e1)) = parse_arg_list2(input)?;
-            Ok((input, Expression::OperationApplication(op_code, Rc::new(e0), Rc::new(e1))))
+            Ok((input, Expression::operation_application(op_code, e0, e1)))
         },
         Mul => {
             let (input, (e0, e1)) = parse_arg_list2(input)?;
-            Ok((input, Expression::OperationApplication(op_code, Rc::new(e0), Rc::new(e1))))
+            Ok((input, Expression::operation_application(op_code, e0, e1)))
         },
         Eq => {
             let (input, (e0, e1)) = parse_arg_list2(input)?;
-            Ok((input, Expression::OperationApplication(op_code, Rc::new(e0), Rc::new(e1))))
+            Ok((input, Expression::operation_application(op_code, e0, e1)))
         },
     }
 }
@@ -70,22 +70,22 @@ pub fn parse_function_declaration(input: TokenStream) -> IResult0<FunctionDefini
     let (input, _) = token(TokenType::OpenCurly)(input)?;
     let (input, body) = parse_expression(input)?;
     let (input, _) = token(TokenType::CloseCurly)(input)?;
-    Ok((input, FunctionDefinition { name: FunctionName::new(function_name_str), parameters, body: Rc::new(body) }))
+    Ok((input, FunctionDefinition { name: FunctionName::new(function_name_str), parameters, body }))
 }
 
 pub fn parse_expression(input: TokenStream) -> IResult0<Expression> {
     let (input, token0) = anytoken(input)?;
     use Token::*;
     match token0 {
-        Int(x) => Ok((input, Expression::Int(x))),
+        Int(x) => Ok((input, Expression::int(x))),
         VarUseSymbol => {
             let (input, var_name) = anyidentifier(input)?;
-            Ok((input, Expression::VarUse(VariableName::new(var_name))))
+            Ok((input, Expression::var_use(VariableName::new(var_name))))
         },
         Identifier(identifier) => {
             match &identifier[..] {
-                "true" => Ok((input, Expression::Bool(true))),
-                "false" => Ok((input, Expression::Bool(false))),
+                "true" => Ok((input, Expression::bool(true))),
+                "false" => Ok((input, Expression::bool(false))),
                 "let" => {
                     // let { x = 5 . body }
                     let (input, _) = token(TokenType::OpenCurly)(input)?;
@@ -98,7 +98,7 @@ pub fn parse_expression(input: TokenStream) -> IResult0<Expression> {
                     let (input, body) = parse_expression(input)?;
                     let (input, _) = token(TokenType::CloseCurly)(input)?;
 
-                    Ok((input, Expression::Let { arg: Rc::new(arg), var: VariableName::new(identifier), body: Rc::new(body) }))
+                    Ok((input, Expression::let_(arg, VariableName::new(identifier), body)))
                 },
                 "if" => {
                     // if eq(3, 4) { 55 } { 67 }
@@ -112,7 +112,7 @@ pub fn parse_expression(input: TokenStream) -> IResult0<Expression> {
                     let (input, else_branch) = parse_expression(input)?;
                     let (input, _) = token(TokenType::CloseCurly)(input)?;
 
-                    Ok((input, Expression::If(Rc::new(arg), Rc::new(then_branch), Rc::new(else_branch))))
+                    Ok((input, Expression::if_(arg, then_branch, else_branch)))
                 },
                 "fn" => {
                     // fn { x . add($x, 1) }
@@ -122,12 +122,12 @@ pub fn parse_expression(input: TokenStream) -> IResult0<Expression> {
                     let (input, body) = parse_expression(input)?;
                     let (input, _) = token(TokenType::CloseCurly)(input)?;
 
-                    Ok((input, Expression::Lambda { var: VariableName::new(identifier), body: Rc::new(body) }))
+                    Ok((input, Expression::lambda(VariableName::new(identifier), body)))
                 },
                 "app" => {
                     // app($f, $x)
                     let (input, (e0, e1)) = parse_arg_list2(input)?;
-                    Ok((input, Expression::Apply(Rc::new(e0), Rc::new(e1))))
+                    Ok((input, Expression::apply(e0, e1)))
                 },
                 s => match identifier_to_operation_code(s) {
                     Some(op_code) => parse_operator_arguments(op_code, input),
@@ -139,8 +139,7 @@ pub fn parse_expression(input: TokenStream) -> IResult0<Expression> {
                                 let (input, _) = token(TokenType::OpenParen)(input)?;
                                 let (input, arguments) = expression_vector(input)?;
                                 let (input, _) = token(TokenType::CloseParen)(input)?;
-                                let arguments = arguments.into_iter().map(Rc::new).collect();
-                                Ok((input, Expression::Call(FunctionName::new(identifier), arguments)))
+                                Ok((input, Expression::call(FunctionName::new(identifier), arguments)))
                             },
                             None => {
                                 // TODO: Check if this is a function application
@@ -213,7 +212,7 @@ impl Program {
 pub struct FunctionDefinition {
     name: FunctionName,
     parameters: Vec<VariableName>,
-    body: Rc<Expression>,
+    body: Expression,
 }
 
 // ===Expressions===
@@ -221,25 +220,42 @@ pub struct FunctionDefinition {
 // TODO: Seems like adding Lambda Expression messes everything up completely. Suddenly I have to
 // put Rc everywhere instead of Box.
 // Can I have `LinearExpression` that doesn't have this problem?
+
+#[derive(Debug, Clone)]
+pub struct Expression(pub Rc<Expression0>);
+
 #[derive(Debug)]
-pub enum Expression {
-    Call(FunctionName, Vec<Rc<Expression>>),
+pub enum Expression0 {
+    Call(FunctionName, Vec<Expression>),
     Int(i32),
     Bool(bool),
-    OperationApplication(OperationCode, Rc<Expression>, Rc<Expression>),
-    If(Rc<Expression>, Rc<Expression>, Rc<Expression>),
+    OperationApplication(OperationCode, Expression, Expression),
+    If(Expression, Expression, Expression),
     // TODO: Add some sort of if-then-else. I guess then you also want to have boolean expressions.
     // IfIntEqThenElse {  }
     VarUse(VariableName),
-    Let { arg: Rc<Expression>, var: VariableName, body: Rc<Expression> },
+    Let { arg: Expression, var: VariableName, body: Expression },
     // Note that the body is in Rc. This is because when evaluating a lambda expression,
     // a closure value is createad which references this body.
     // TODO: If I passed the expression not as a reference, but directly,
     //       couldn't I just take ownership of the body?
-    Lambda { var: VariableName, body: Rc<Expression> },
+    Lambda { var: VariableName, body: Expression },
     // Fat-chance
-    LambdaRec { rec_var: VariableName, var: VariableName, body: Rc<Expression> },
-    Apply(Rc<Expression>, Rc<Expression>),
+    LambdaRec { rec_var: VariableName, var: VariableName, body: Expression },
+    Apply(Expression, Expression),
+}
+
+impl Expression {
+    fn call(fn_name: FunctionName, args: Vec<Self>) -> Self { Self(Rc::new(Expression0::Call(fn_name, args))) }
+    fn int(x: i32) -> Self { Self(Rc::new(Expression0::Int(x))) }
+    fn bool(b: bool) -> Self { Self(Rc::new(Expression0::Bool(b))) }
+    fn operation_application(op_code: OperationCode, e0: Self, e1: Self) -> Self { Self(Rc::new(Expression0::OperationApplication(op_code, e0, e1))) }
+    fn if_(e: Self, e0: Self, e1: Self) -> Self { Self(Rc::new(Expression0::If(e, e0, e1))) }
+    fn var_use(var: VariableName) -> Self { Self(Rc::new(Expression0::VarUse(var))) }
+    fn let_(arg: Self, var: VariableName, body: Self) -> Self { Self(Rc::new(Expression0::Let { arg, var, body })) }
+    fn lambda(var: VariableName, body: Self) -> Self { Self(Rc::new(Expression0::Lambda { var, body })) }
+    fn lambda_rec(rec_var: VariableName, var: VariableName, body: Self) -> Self { Self(Rc::new(Expression0::LambdaRec { rec_var, var, body })) }
+    fn apply(closure: Self, arg: Self) -> Self { Self(Rc::new(Expression0::Apply(closure, arg))) }
 }
 
 #[derive(Debug, PartialEq)]
@@ -262,7 +278,7 @@ pub enum Value {
     //       Hmm, I feel like body has to be in Rc...
     //       since conceptually multiple closures with differing captured environments
     //       could point to the same body expression.
-    Closure { env: Env, var: VariableName, body: Rc<Expression> },
+    Closure { env: Env, var: VariableName, body: Expression },
     // But remember that to evaluate closure, we'll have to evaluate the underlying expression (in
     // the captured environment). But `eval_direct` takes ownership of the Expression.
     // So it seems that
@@ -351,9 +367,8 @@ impl Env {
 }
 
 // ===Evaluation===
-
 pub fn eval_start(program: &Program, e: Expression) -> Result<Value, Error> {
-    let value = eval(program, Env::new(), Rc::new(e))?;
+    let value = eval(program, Env::new(), e)?;
     Ok(value)
 }
 
@@ -376,21 +391,21 @@ fn apply_function(program: &Program, fn_name: FunctionName, arg_values: Vec<Valu
 //       Seems the root cause was trying to evaluate a closure application
 //       where the closure only had a reference to an expression,
 //       but to call eval recursively on its body we required owning that body, which we could not.
-fn eval(program: &Program, env: Env, e: Rc<Expression>) -> Result<Value, Error> {
-    use Expression::*;
-    match &*e {
+fn eval(program: &Program, env: Env, e: Expression) -> Result<Value, Error> {
+    use Expression0::*;
+    match &*e.0 {
         Call(fn_name, args) => {
             let mut values: Vec<Value> = Vec::with_capacity(args.len());
             for arg in args {
-                values.push(eval(program, env.clone(), Rc::clone(arg))?);
+                values.push(eval(program, env.clone(), arg.clone())?);
             }
             apply_function(program, fn_name.clone(), values)
         },
         Int(x) => Ok(Value::Int(*x)),
         Bool(x) => Ok(Value::Bool(*x)),
         OperationApplication(code, e0, e1) => {
-            let val0 = eval(program, env.clone(), Rc::clone(e0))?;
-            let val1 = eval(program, env, Rc::clone(e1))?;
+            let val0 = eval(program, env.clone(), e0.clone())?;
+            let val1 = eval(program, env, e1.clone())?;
             match (val0, val1) {
                 (Value::Int(x0), Value::Int(x1)) => {
                     use OperationCode::*;
@@ -411,13 +426,13 @@ fn eval(program: &Program, env: Env, e: Rc<Expression>) -> Result<Value, Error> 
             }
         },
         If(arg, then_branch, else_branch) => {
-            let arg_value = eval(program, env.clone(), Rc::clone(arg))?;
+            let arg_value = eval(program, env.clone(), arg.clone())?;
             match arg_value {
                 Value::Bool(b) => {
                     if b {
-                        eval(program, env, Rc::clone(then_branch))
+                        eval(program, env, then_branch.clone())
                     } else {
-                        eval(program, env, Rc::clone(else_branch))
+                        eval(program, env, else_branch.clone())
                     }
                 }
                 _ => todo!(),
@@ -425,15 +440,15 @@ fn eval(program: &Program, env: Env, e: Rc<Expression>) -> Result<Value, Error> 
         },
         VarUse(var_name) => env.get(var_name.clone()),
         Let { arg, var, body } => {
-            let arg_value = eval(program, env.clone(), Rc::clone(arg))?;
+            let arg_value = eval(program, env.clone(), arg.clone())?;
             let env = env.extend(var.clone(), arg_value);
-            eval(program, env, Rc::clone(body))
+            eval(program, env, body.clone())
         },
         Lambda { var, body } => {
-            Ok(Value::Closure { env, var: var.clone(), body: Rc::clone(body) })
+            Ok(Value::Closure { env, var: var.clone(), body: body.clone() })
         },
         LambdaRec { rec_var, var, body } => {
-            let closure = Value::Closure { env: env.clone(), var: var.clone(), body: Rc::clone(body) };
+            let closure = Value::Closure { env: env.clone(), var: var.clone(), body: body.clone() };
             let env = Rc::new(env.extend(rec_var.clone(), closure));
             // closure.env = env;
             // TODO: How the hell can I do this? I probably need interior mutability for this,
@@ -441,10 +456,10 @@ fn eval(program: &Program, env: Env, e: Rc<Expression>) -> Result<Value, Error> 
             todo!()
         },
         Apply(e0, e1) => {
-            let closure = eval(program, env.clone(), Rc::clone(e0))?;
+            let closure = eval(program, env.clone(), e0.clone())?;
             match closure {
                 Value::Closure { env: closure_env, var, body } => {
-                    let arg_value = eval(program, env.clone(), Rc::clone(e1))?;
+                    let arg_value = eval(program, env.clone(), e1.clone())?;
                     eval(program, closure_env.extend(var, arg_value), body)
                 },
                 _ => todo!(),
