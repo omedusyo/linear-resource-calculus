@@ -93,3 +93,10 @@ fn f(x, y, z)[u, v] {
 }
 
 
+obj { #force () . 123 }
+
+send(obj { #force () . 123 }, #force ())
+
+:def fn nats(n) { obj { #hd () . $n | #tl () . nats(+($n, 1)) } }
+
+send(send(send(nats(0), #tl ()), #tl ()), #hd ())

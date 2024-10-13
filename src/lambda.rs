@@ -64,7 +64,6 @@ fn expression_vector(input: TokenStream) -> IResult0<Vec<Expression>> {
     delimited_vector(parse_expression, token(TokenType::Comma))(input)
 }
 
-
 pub fn parse_function_declaration(input: TokenStream) -> IResult0<FunctionDefinition> {
     let (input, _) = identifier("fn")(input)?;
     let (input, function_name_str) = anyidentifier(input)?;
@@ -190,6 +189,18 @@ pub fn parse_expression(input: TokenStream) -> IResult0<Expression> {
                     let (input, (e0, e1)) = parse_arg_list2(input)?;
                     Ok((input, Expression::apply(e0, e1)))
                 },
+                "obj" => {
+                    // obj { #hd () . e0 | #tl () . e1 }
+                    let (input, _) = token(TokenType::OpenCurly)(input)?;
+                    let (input, branches) = parse_branches(input)?;
+                    let (input, _) = token(TokenType::CloseCurly)(input)?;
+                    Ok((input, Expression::object(branches)))
+                },
+                "send" => {
+                    // send($obj, $msg)
+                    let (input, (e0, e1)) = parse_arg_list2(input)?;
+                    Ok((input, Expression::send(e0, e1)))
+                },
                 s => match identifier_to_operation_code(s) {
                     Some(op_code) => parse_operator_arguments(op_code, input),
                     None => {
@@ -300,8 +311,9 @@ pub enum Expression0 {
     Tagged(Tag, Expression),
     Tuple(Vec<Expression>),
     Int(i32),
-    Bool(bool),
     OperationApplication(OperationCode, Expression, Expression),
+    // TODO: delete Bool and if. You got match, that should be enough.
+    Bool(bool),
     If(Expression, Expression, Expression),
     // TODO: Add some sort of if-then-else. I guess then you also want to have boolean expressions.
     // IfIntEqThenElse {  }
@@ -318,15 +330,17 @@ pub enum Expression0 {
     // Fat-chance
     LambdaRec { rec_var: VariableName, var: VariableName, body: Expression },
     Apply(Expression, Expression),
+    Object { branches: Rc<Vec<PatternBranch>> },
+    Send(Expression, Expression),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PatternBranch {
     pub pattern: Pattern,
     pub body: Expression,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Pattern {
     Variable(VariableName),
     Tagged(Tag, Box<Pattern>),
@@ -393,6 +407,9 @@ impl Expression {
     fn lambda(var: VariableName, body: Self) -> Self { Self(Rc::new(Expression0::Lambda { var, body })) }
     fn lambda_rec(rec_var: VariableName, var: VariableName, body: Self) -> Self { Self(Rc::new(Expression0::LambdaRec { rec_var, var, body })) }
     fn apply(closure: Self, arg: Self) -> Self { Self(Rc::new(Expression0::Apply(closure, arg))) }
+    // TODO: The double Rc<_> here is very suspicious.
+    fn object(branches: Vec<PatternBranch>) -> Self { Self(Rc::new(Expression0::Object { branches: Rc::new(branches) })) }
+    fn send(obj: Self, msg: Self) -> Self { Self(Rc::new(Expression0::Send(obj, msg))) }
 }
 
 #[derive(Debug, PartialEq)]
@@ -423,6 +440,8 @@ pub enum Value {
     //       since conceptually multiple closures with differing captured environments
     //       could point to the same body expression.
     Closure { captured_env: Env, var: VariableName, body: Expression },
+    // TODO: Are you sure about the Rc<_> in ClosureObject?
+    ClosureObject { captured_env: Env, branches: Rc<Vec<PatternBranch>> },
     // But remember that to evaluate closure, we'll have to evaluate the underlying expression (in
     // the captured environment). But `eval_direct` takes ownership of the Expression.
     // So it seems that
@@ -447,6 +466,7 @@ impl fmt::Display for Value {
                 write!(f, ")")
             },
             Closure { ..  } => write!(f, "@{{...}}"),
+            ClosureObject { ..  } => write!(f, "@{{...}}"),
         }
     }
 }
@@ -530,6 +550,19 @@ fn apply_function(program: &Program, fn_name: FunctionName, arg_values: Vec<Valu
     eval(program, &Env::new().extend_many(bindings), &fn_def.body)
 }
 
+fn apply_msg_to_branches(program: &Program, env: &Env, branches: &[PatternBranch], val: &Value) -> Result<Value, Error> {
+    for branch in branches {
+        match branch.pattern.match_(val) {
+            Some(bindings) => {
+                let env = env.clone().extend_many(bindings);
+                return eval(program, &env, &branch.body)
+            },
+            None => {},
+        }
+    }
+    Err(Error::UnableToFindMatchingPattern)
+}
+
 // TODO: Why does e have to be passed as a reference? 
 //       Seems the root cause was trying to evaluate a closure application
 //       where the closure only had a reference to an expression,
@@ -595,16 +628,7 @@ fn eval(program: &Program, env: &Env, e: &Expression) -> Result<Value, Error> {
         },
         Match { arg, branches } => {
             let arg_value = eval(program, env, arg)?;
-            for branch in branches {
-                match branch.pattern.match_(&arg_value) {
-                    Some(bindings) => {
-                        let env = env.clone().extend_many(bindings);
-                        return eval(program, &env, &branch.body)
-                    },
-                    None => {},
-                }
-            }
-            Err(Error::UnableToFindMatchingPattern)
+            apply_msg_to_branches(program, env, branches, &arg_value)
         },
         VarUse(var_name) => env.get(var_name.clone()),
         Let { arg, var, body } => {
@@ -633,5 +657,18 @@ fn eval(program: &Program, env: &Env, e: &Expression) -> Result<Value, Error> {
                 _ => todo!(),
             }
         },
+        Object { branches } => {
+            Ok(Value::ClosureObject { captured_env: env.clone(), branches: Rc::clone(branches) })
+        },
+        Send(e0, e1) => {
+            let obj = eval(program, env, e0)?;
+            match obj {
+                Value::ClosureObject { captured_env, branches } => {
+                    let msg = eval(program, env, e1)?;
+                    apply_msg_to_branches(program, &captured_env, &branches, &msg)
+                },
+                _ => todo!(),
+            }
+        }
     }
 }
