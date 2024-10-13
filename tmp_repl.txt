@@ -7,7 +7,7 @@ let { foo = 123 . $foo }
 
 $bar
 
-if ==(2, +(1, 1)) { 12 } { 3 }
+let { x = 6 . if ==(2, +(1, 1)) { 12 } { *(3, $x) } }
 
 *(3, 4)
 
@@ -16,3 +16,12 @@ let { inc = fn { x . +($x, 1) } . app($inc, 5) }
 // cartesian vs linear identifiers
 fn f(x, y, z)[u, v] {
 }
+
+// I need to introduce function declarations
+fn f(x, y, z) {
+  let {
+    square = fn { x . *($x, $x) } .
+    +(app($square, $x), app($square, $y))
+  }
+}
+

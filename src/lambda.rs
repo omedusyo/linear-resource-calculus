@@ -1,5 +1,111 @@
 use std::rc::Rc;
 use std::fmt;
+use crate::tokenizer::{TokenStream, Token, TokenType, anyidentifier, anytoken, token};
+use crate::IResult0;
+
+// ===parser===
+fn identifier_to_operation_code(str: &str) -> Option<OperationCode> {
+    match str {
+        "+" => Some(OperationCode::Add),
+        "*" => Some(OperationCode::Mul),
+        "==" => Some(OperationCode::Eq),
+        _ => None
+    }
+}
+
+fn parse_operator_arguments(op_code: OperationCode, input: TokenStream) -> IResult0<Expression> {
+    use OperationCode::*;
+    match op_code {
+        Add => {
+            let (input, (e0, e1)) = parse_arg_list2(input)?;
+            Ok((input, Expression::OperationApplication(op_code, Rc::new(e0), Rc::new(e1))))
+        },
+        Mul => {
+            let (input, (e0, e1)) = parse_arg_list2(input)?;
+            Ok((input, Expression::OperationApplication(op_code, Rc::new(e0), Rc::new(e1))))
+        },
+        Eq => {
+            let (input, (e0, e1)) = parse_arg_list2(input)?;
+            Ok((input, Expression::OperationApplication(op_code, Rc::new(e0), Rc::new(e1))))
+        },
+    }
+}
+
+fn parse_arg_list2(input: TokenStream) -> IResult0<(Expression, Expression)> {
+    // "(e0, e1)  "
+    let (input, _) = token(TokenType::OpenParen)(input)?;
+    let (input, e0) = parse_expression(input)?;
+    let (input, _) = token(TokenType::Comma)(input)?;
+    let (input, e1) = parse_expression(input)?;
+    let (input, _) = token(TokenType::CloseParen)(input)?;
+    Ok((input, (e0, e1)))
+}
+
+pub fn parse_expression(input: TokenStream) -> IResult0<Expression> {
+    let (input, token0) = anytoken(input)?;
+    use Token::*;
+    match token0 {
+        Int(x) => Ok((input, Expression::Int(x))),
+        VarUseSymbol => {
+            let (input, var_name) = anyidentifier(input)?;
+            Ok((input, Expression::VarUse(VarName(var_name))))
+        },
+        Identifier(identifier) => {
+            match &identifier[..] {
+                "true" => Ok((input, Expression::Bool(true))),
+                "false" => Ok((input, Expression::Bool(false))),
+                "let" => {
+                    // let { x = 5 . body }
+                    let (input, _) = token(TokenType::OpenCurly)(input)?;
+                    let (input, identifier) = anyidentifier(input)?;
+                    let (input, _) = token(TokenType::Eq)(input)?;
+                    let (input, arg) = parse_expression(input)?;
+
+                    let (input, _) = token(TokenType::BindingSeparator)(input)?;
+
+                    let (input, body) = parse_expression(input)?;
+                    let (input, _) = token(TokenType::CloseCurly)(input)?;
+
+                    Ok((input, Expression::Let { arg: Rc::new(arg), var: VarName(identifier), body: Rc::new(body) }))
+                },
+                "if" => {
+                    // if eq(3, 4) { 55 } { 67 }
+                    let (input, arg) = parse_expression(input)?;
+
+                    let (input, _) = token(TokenType::OpenCurly)(input)?;
+                    let (input, then_branch) = parse_expression(input)?;
+                    let (input, _) = token(TokenType::CloseCurly)(input)?;
+
+                    let (input, _) = token(TokenType::OpenCurly)(input)?;
+                    let (input, else_branch) = parse_expression(input)?;
+                    let (input, _) = token(TokenType::CloseCurly)(input)?;
+
+                    Ok((input, Expression::If(Rc::new(arg), Rc::new(then_branch), Rc::new(else_branch))))
+                },
+                "fn" => {
+                    // fn { x . add($x, 1) }
+                    let (input, _) = token(TokenType::OpenCurly)(input)?;
+                    let (input, identifier) = anyidentifier(input)?;
+                    let (input, _) = token(TokenType::BindingSeparator)(input)?;
+                    let (input, body) = parse_expression(input)?;
+                    let (input, _) = token(TokenType::CloseCurly)(input)?;
+
+                    Ok((input, Expression::Lambda { var: VarName(identifier), body: Rc::new(body) }))
+                },
+                "app" => {
+                    // app($f, $x)
+                    let (input, (e0, e1)) = parse_arg_list2(input)?;
+                    Ok((input, Expression::Apply(Rc::new(e0), Rc::new(e1))))
+                },
+                s => match identifier_to_operation_code(s) {
+                    Some(op_code) => parse_operator_arguments(op_code, input),
+                    None => Err(nom::Err::Error(nom::error::Error { input: input.input, code: nom::error::ErrorKind::Alt })),
+                },
+            }
+        },
+        _ => Err(nom::Err::Error(nom::error::Error { input: input.input, code: nom::error::ErrorKind::Alt })),
+    }
+}
 
 // ===Expressions===
 #[derive(Debug, PartialEq, Clone)]
