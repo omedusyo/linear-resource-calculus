@@ -40,4 +40,3 @@ fn f(x, y, z) {
     +(app($square, $x), app($square, $y))
   }
 }
-

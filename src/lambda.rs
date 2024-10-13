@@ -326,14 +326,6 @@ pub enum Env0 {
     Push { var: VariableName, value: Value, parent: Env },
 }
 
-// TODO: Should I make a new type alias for Rc<Env>?
-//   CartesianEnv?  supports .clone()  and .extend and .get
-impl Env0 {
-    fn new() -> Self {
-        Self::Empty
-    }
-}
-
 impl Env {
     fn new() -> Self {
         Self(Rc::new(Env0::Empty))
@@ -368,7 +360,7 @@ impl Env {
 
 // ===Evaluation===
 pub fn eval_start(program: &Program, e: Expression) -> Result<Value, Error> {
-    let value = eval(program, Env::new(), e)?;
+    let value = eval(program, &Env::new(), &e)?;
     Ok(value)
 }
 
@@ -383,29 +375,28 @@ fn apply_function(program: &Program, fn_name: FunctionName, arg_values: Vec<Valu
     for (i, val) in arg_values.into_iter().enumerate() {
         bindings.push((fn_def.parameters[i].clone(), val));
     }
-    let env = Env::new().extend_many(bindings);
-    eval(program, env, fn_def.body.clone())
+    eval(program, &Env::new().extend_many(bindings), &fn_def.body)
 }
 
 // TODO: Why does e have to be passed as a reference? 
 //       Seems the root cause was trying to evaluate a closure application
 //       where the closure only had a reference to an expression,
 //       but to call eval recursively on its body we required owning that body, which we could not.
-fn eval(program: &Program, env: Env, e: Expression) -> Result<Value, Error> {
+fn eval(program: &Program, env: &Env, e: &Expression) -> Result<Value, Error> {
     use Expression0::*;
-    match &*e.0 {
+    match &*(e.0) {
         Call(fn_name, args) => {
             let mut values: Vec<Value> = Vec::with_capacity(args.len());
             for arg in args {
-                values.push(eval(program, env.clone(), arg.clone())?);
+                values.push(eval(program, env, &arg)?);
             }
             apply_function(program, fn_name.clone(), values)
         },
         Int(x) => Ok(Value::Int(*x)),
         Bool(x) => Ok(Value::Bool(*x)),
         OperationApplication(code, e0, e1) => {
-            let val0 = eval(program, env.clone(), e0.clone())?;
-            let val1 = eval(program, env, e1.clone())?;
+            let val0 = eval(program, env, e0)?;
+            let val1 = eval(program, env, e1)?;
             match (val0, val1) {
                 (Value::Int(x0), Value::Int(x1)) => {
                     use OperationCode::*;
@@ -426,13 +417,13 @@ fn eval(program: &Program, env: Env, e: Expression) -> Result<Value, Error> {
             }
         },
         If(arg, then_branch, else_branch) => {
-            let arg_value = eval(program, env.clone(), arg.clone())?;
+            let arg_value = eval(program, env, arg)?;
             match arg_value {
                 Value::Bool(b) => {
                     if b {
-                        eval(program, env, then_branch.clone())
+                        eval(program, env, then_branch)
                     } else {
-                        eval(program, env, else_branch.clone())
+                        eval(program, env, else_branch)
                     }
                 }
                 _ => todo!(),
@@ -440,78 +431,30 @@ fn eval(program: &Program, env: Env, e: Expression) -> Result<Value, Error> {
         },
         VarUse(var_name) => env.get(var_name.clone()),
         Let { arg, var, body } => {
-            let arg_value = eval(program, env.clone(), arg.clone())?;
-            let env = env.extend(var.clone(), arg_value);
-            eval(program, env, body.clone())
+            let arg_value = eval(program, env, arg)?;
+            let env = env.clone().extend(var.clone(), arg_value);
+            eval(program, &env, body)
         },
         Lambda { var, body } => {
-            Ok(Value::Closure { env, var: var.clone(), body: body.clone() })
+            Ok(Value::Closure { env: env.clone(), var: var.clone(), body: body.clone() })
         },
         LambdaRec { rec_var, var, body } => {
             let closure = Value::Closure { env: env.clone(), var: var.clone(), body: body.clone() };
-            let env = Rc::new(env.extend(rec_var.clone(), closure));
+            let env = Rc::new(env.clone().extend(rec_var.clone(), closure));
             // closure.env = env;
             // TODO: How the hell can I do this? I probably need interior mutability for this,
             // that's insane.
             todo!()
         },
         Apply(e0, e1) => {
-            let closure = eval(program, env.clone(), e0.clone())?;
+            let closure = eval(program, env, e0)?;
             match closure {
                 Value::Closure { env: closure_env, var, body } => {
-                    let arg_value = eval(program, env.clone(), e1.clone())?;
-                    eval(program, closure_env.extend(var, arg_value), body)
+                    let arg_value = eval(program, env, e1)?;
+                    eval(program, &closure_env.extend(var, arg_value), &body)
                 },
                 _ => todo!(),
             }
         },
     }
 }
-
-// TODO: Is it wise for eval to take ownership of the expression?
-//       Seems like when we're doing some sort of a loop,
-//       we're gonna be going through the same expression multiple times.
-//       And that doesn't look like ownership to me.
-//
-//       I bet if this was some sort of a linear eval, then we could take ownership...
-// fn eval_direct(env: Rc<Env>, e: Expression) -> Result<Value, Error> {
-//     use Expression::*;
-//     match e {
-//         Int(x) => Ok(Value::Int(x)),
-//         OperationApplication(code, e0, e1) => {
-//             let val0 = eval_direct(Rc::clone(&env), *e0)?;
-//             let val1 = eval_direct(env, *e1)?;
-//             match (val0, val1) {
-//                 (Value::Int(x0), Value::Int(x1)) => {
-//                     use OperationCode::*;
-//                     match code {
-//                         Add => Ok(Value::Int(x0 + x1)),
-//                         Mul => Ok(Value::Int(x0 * x1)),
-//                     }
-//                 },
-//                 _ => todo!(),
-//             }
-//         },
-//         VarUse(var_name) => env_get(env, var_name),
-//         Let { arg, var, body } => {
-//             let arg_value = eval_direct(Rc::clone(&env), *arg)?;
-//             let env = Rc::new(env_extend(env, var.clone(), arg_value));
-//             eval_direct(env, *body)
-//         },
-//         Lambda { var, body } => {
-//             Ok(Value::Closure { env, var: var.clone(), body: Rc::new(*body) })
-//         },
-//         Apply(e0, e1) => {
-//             let closure = eval_direct(Rc::clone(&env), *e0)?;
-//             match closure {
-//                 Value::Closure { env: closure_env, var, body } => {
-//                     let arg_value = eval_direct(Rc::clone(&env), *e1)?;
-//                     // let x = eval_direct(Rc::new(env_extend(closure_env, var, arg_value)), body);
-//                     todo!()
-//                 },
-//                 _ => todo!(),
-//             }
-//         },
-//         _ => todo!(),
-//     }
-// }
