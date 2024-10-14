@@ -144,3 +144,20 @@ given p : Parser(Token, A, E)
 we can give it a token, and it can parse it somehow, then return a new parser object that awaits for next token...
 After a while we can force the parser to give us the output, which is like giving it an EOF
 
+cargo build
+
+cargo run
+
+:load program.pmd
+
+:list fn
+
+:r
+
+square(5)
+
+range-iter(5, 0)
+
+:def fn f(x) { $x }
+
+

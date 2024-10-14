@@ -277,6 +277,19 @@ pub fn identifier<'a>(id_str: &'a str) -> impl Fn(TokenStream<'a>) -> IResult0<'
     }
 }
 
+pub fn vector<A>(
+    pelement: impl Fn(TokenStream) -> IResult0<A>,
+) -> impl Fn(TokenStream) -> IResult0<Vec<A>> {
+    move |mut input: TokenStream| {
+        let mut elements = vec![];
+        while let Ok((input0, element)) = pelement(input) {
+            elements.push(element);
+            input = input0;
+        }
+        Ok((input, elements))
+    }
+}
+
 pub fn delimited_vector<A, D>(
     pelement: impl Fn(TokenStream) -> IResult0<A>,
     pdelimiter: impl Fn(TokenStream) -> IResult0<D>

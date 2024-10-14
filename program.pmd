@@ -1,0 +1,36 @@
+fn inc(x) {
+  +($x, 1)
+}
+
+fn square(x) {
+  *($x, $x)
+}
+
+fn pyth(x, y) {
+  +(square($x), square($y))
+}
+
+
+fn fct(x) { match ==($x, 0) {
+  #T() . 1
+| #F() . *($x, fct(sub($x, 1)))
+}}
+
+
+fn map(f, xs) { match $xs {
+  #nil() . #nil()
+| #cons(x, xs) . #cons(send($f, $x), map($f, $xs))
+}}
+
+fn range-iter(n, i) { match ==($n, $i) {
+  #T() . #nil()
+| #F() . #cons($i, range-iter($n, +($i, 1)))
+}}
+
+
+
+fn nats(n) { obj {
+  #hd () . $n
+| #tl () . nats(+($n, 1))
+}}
+

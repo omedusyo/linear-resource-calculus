@@ -1,17 +1,12 @@
 use std::rc::Rc;
 use std::fmt;
-use crate::tokenizer::{TokenStream, Token, TokenType, anyidentifier, anytoken, identifier, token, peek_anytoken, peek_token, delimited_nonempty_vector, delimited_vector};
-use crate::identifier::{VariableName, FunctionName, Tag};
+use crate::tokenizer::{TokenStream, Token, TokenType, anyidentifier, anytoken, identifier, token, peek_anytoken, peek_token, vector, delimited_nonempty_vector, delimited_vector};
+use crate::identifier::{VariableName, FunctionName, Tag, variable_name};
 use crate::IResult0;
 use std::collections::HashMap;
 
 
 // ===parser===
-fn variable_name(input: TokenStream) -> IResult0<VariableName> {
-    let (input, str) = anyidentifier(input)?;
-    Ok((input, VariableName::new(str)))
-}
-
 fn identifier_to_operation_code(str: &str) -> Option<OperationCode> {
     match str {
         "+" => Some(OperationCode::Add),
@@ -65,7 +60,18 @@ fn expression_vector(input: TokenStream) -> IResult0<Vec<Expression>> {
     delimited_vector(parse_expression, token(TokenType::Comma))(input)
 }
 
-pub fn parse_function_declaration(input: TokenStream) -> IResult0<FunctionDefinition> {
+pub fn parse_program(input: TokenStream) -> IResult0<Program> {
+    let (input, definitions) = vector(parse_function_definition)(input)?;
+    let mut program = Program::new();
+    for definition in definitions {
+        let name = definition.name.clone();
+        program.function_definitions.insert(name.clone(), definition);
+        program.function_definitions_ordering.push(name);
+    }
+    Ok((input, program))
+}
+
+pub fn parse_function_definition(input: TokenStream) -> IResult0<FunctionDefinition> {
     let (input, _) = identifier("fn")(input)?;
     let (input, function_name_str) = anyidentifier(input)?;
     let (input, _) = token(TokenType::OpenParen)(input)?;
@@ -198,9 +204,17 @@ pub fn parse_expression(input: TokenStream) -> IResult0<Expression> {
 }
 
 // ===Program===
+#[derive(Debug)]
 pub struct Program {
     pub function_definitions: HashMap<FunctionName, FunctionDefinition>,
     pub function_definitions_ordering: Vec<FunctionName>,
+}
+
+#[derive(Debug)]
+pub struct FunctionDefinition {
+    name: FunctionName,
+    parameters: Vec<VariableName>,
+    body: Expression,
 }
 
 impl Program {
@@ -228,13 +242,6 @@ impl Program {
     pub fn get_function_definition(&self, function_name: FunctionName) -> Option<&FunctionDefinition> {
         self.function_definitions.get(&function_name)
     }
-}
-
-#[derive(Debug)]
-pub struct FunctionDefinition {
-    name: FunctionName,
-    parameters: Vec<VariableName>,
-    body: Expression,
 }
 
 // ===Expressions===

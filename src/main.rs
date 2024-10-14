@@ -3,6 +3,8 @@ mod identifier;
 mod lambda;
 mod lambda_linear;
 
+use std::rc::Rc;
+use std::fs;
 use nom::{
   bytes::complete::{tag, take_while},
   combinator::{peek, verify},
@@ -13,7 +15,7 @@ use rustyline::{
     history::FileHistory,
     config::Builder as LineBuilder,
 };
-use lambda::{FunctionDefinition, Expression, Program, eval_start, parse_function_declaration, parse_expression};
+use lambda::{FunctionDefinition, Expression, Program, eval_start, parse_function_definition, parse_expression, parse_program};
 use tokenizer::TokenStream;
 
 type IResult<I, O> = Result<(I, O), nom::Err<nom::error::Error<I>>>;
@@ -34,6 +36,8 @@ enum Command {
     Help,
     Def(FunctionDefinition),
     ListFn,
+    LoadProgram(String),
+    Reload,
     PrintHello,
 }
 
@@ -45,6 +49,19 @@ fn parse_command<'a>(rl: &mut Editor, input: &'a str) -> IResult<&'a str, Comman
         Ok((input, format!("{}{}", c0, s)))
     }
 
+    fn parse_file_name(input: &str) -> IResult<&str, String> {
+        fn is_forbidden(c: char) -> bool {
+            match c {
+                ' ' | '\r' | '\n' => true,
+                _ => false,
+            }
+        }
+        // sequence of consecutive non-whitespace chars.
+        let (input, c0) = verify(anychar, |c: &char| !is_forbidden(*c))(input)?;
+        let (input, s) = take_while(|c: char| !is_forbidden(c))(input)?;
+        Ok((input, format!("{}{}", c0, s)))
+    }
+
     let input_backup = input;
     let (input, _) = tag(":")(input)?;
     let (input, _) = multispace0(input)?;
@@ -53,7 +70,7 @@ fn parse_command<'a>(rl: &mut Editor, input: &'a str) -> IResult<&'a str, Comman
         "help" => Ok((input, Command::Help)),
         "def" => {
             let (input, _) = multispace0(input)?;
-            let (input, fn_declaration) = parse_function_declaration(TokenStream::new(input))?;
+            let (input, fn_declaration) = parse_function_definition(TokenStream::new(input))?;
             if input.input.is_empty() {
                 let _ = rl.add_history_entry(input_backup);
                 Ok((input.input, Command::Def(fn_declaration)))
@@ -69,6 +86,12 @@ fn parse_command<'a>(rl: &mut Editor, input: &'a str) -> IResult<&'a str, Comman
                 _ => Err(nom::Err::Error(nom::error::Error { input, code: nom::error::ErrorKind::NoneOf })),
             }
         },
+        "load" | "l" => {
+            let (input, _) = multispace0(input)?;
+            let (input, file_name) = parse_file_name(input)?;
+            Ok((input, Command::LoadProgram(file_name)))
+        },
+        "reload" | "r" => Ok((input, Command::Reload)),
         "print_hello" => Ok((input, Command::PrintHello)),
         _ => Err(nom::Err::Error(nom::error::Error { input, code: nom::error::ErrorKind::NoneOf })),
 
@@ -78,6 +101,7 @@ fn parse_command<'a>(rl: &mut Editor, input: &'a str) -> IResult<&'a str, Comman
 struct State {
     program: Program,
     editor: Editor,
+    current_file: Option<Rc<String>>,
     history_file_name: &'static str,
 }
 
@@ -97,6 +121,7 @@ impl State {
         Ok(Self {
             program: Program::new(),
             editor,
+            current_file: None,
             history_file_name,
         })
     }
@@ -108,6 +133,34 @@ impl State {
 
 enum Msg {
     Line(Line),
+}
+
+fn load_file(state: &mut State, file_name: Rc<String>) {
+    let file_name_copy = file_name.clone();
+    match fs::read_to_string(&*file_name) {
+        Ok(file_contents) => {
+            state.current_file = Some(file_name_copy.clone());
+            println!("Loading '{}'", file_name_copy);
+            // println!("{}", file_contents);
+
+            match parse_program(TokenStream::new(&file_contents)) {
+                Ok((file_contents, program)) => {
+                    if file_contents.input.is_empty() {
+                        println!("Ok.");
+                        state.program = program;
+                    } else {
+                        println!("Failed to parse the whole file. Remaining input: \n{}", file_contents.input);
+                    }
+                },
+                Err(err) => {
+                    dbg!(err);
+                },
+            }
+        },
+        Err(err) => {
+            dbg!(err);
+        },
+    }
 }
 
 fn update(state: &mut State, msg: Msg)  {
@@ -124,6 +177,8 @@ fn update(state: &mut State, msg: Msg)  {
                 println!(":help");
                 println!(":def");
                 println!(":list fn");
+                println!(":load program.pmd (:l program.pmd)");
+                println!(":reload (:r)");
                 println!(":print_hello");
             },
             Command::Def(fn_def) => {
@@ -135,6 +190,19 @@ fn update(state: &mut State, msg: Msg)  {
                     print!("{}, ", fn_name.str()) // needs to be flushed...
                 }
                 println!(""); // flushes stdout
+            },
+            Command::LoadProgram(file_name) => {
+                load_file(state, Rc::new(file_name))
+            },
+            Command::Reload => {
+                match &state.current_file { 
+                    Some(current_file) => {
+                        load_file(state, Rc::clone(current_file))
+                    },
+                    None => {
+                        println!("Nothing to reload.")
+                    }
+                }
             },
             Command::PrintHello => {
                 println!("hello?")

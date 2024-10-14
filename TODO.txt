@@ -1,0 +1,3 @@
+* linear lambda calculus
+* separate parsers into their own modules (each lambda calc could get a local module named `p` s.t. it would contain the parsers)
+* multiline repl (might be hard, since you'd have to somehow have suspendable/resumable parsers, which requires some sort of continuations)
