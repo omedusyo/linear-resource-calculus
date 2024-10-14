@@ -136,8 +136,6 @@ pub fn parse_expression(input: TokenStream) -> IResult0<Expression> {
         },
         Identifier(identifier) => {
             match &identifier[..] {
-                "true" => Ok((input, Expression::bool(true))),
-                "false" => Ok((input, Expression::bool(false))),
                 "let" => {
                     // let { x = 5 . body }
                     let (input, _) = token(TokenType::OpenCurly)(input)?;
@@ -152,20 +150,6 @@ pub fn parse_expression(input: TokenStream) -> IResult0<Expression> {
 
                     Ok((input, Expression::let_(arg, VariableName::new(identifier), body)))
                 },
-                "if" => {
-                    // if eq(3, 4) { 55 } { 67 }
-                    let (input, arg) = parse_expression(input)?;
-
-                    let (input, _) = token(TokenType::OpenCurly)(input)?;
-                    let (input, then_branch) = parse_expression(input)?;
-                    let (input, _) = token(TokenType::CloseCurly)(input)?;
-
-                    let (input, _) = token(TokenType::OpenCurly)(input)?;
-                    let (input, else_branch) = parse_expression(input)?;
-                    let (input, _) = token(TokenType::CloseCurly)(input)?;
-
-                    Ok((input, Expression::if_(arg, then_branch, else_branch)))
-                },
                 "match" => {
                     let (input, arg) = parse_expression(input)?;
                     let (input, _) = token(TokenType::OpenCurly)(input)?;
@@ -173,21 +157,6 @@ pub fn parse_expression(input: TokenStream) -> IResult0<Expression> {
                     let (input, _) = token(TokenType::CloseCurly)(input)?;
 
                     Ok((input, Expression::match_(arg, branches)))
-                },
-                "fn" => {
-                    // fn { x . add($x, 1) }
-                    let (input, _) = token(TokenType::OpenCurly)(input)?;
-                    let (input, identifier) = anyidentifier(input)?;
-                    let (input, _) = token(TokenType::BindingSeparator)(input)?;
-                    let (input, body) = parse_expression(input)?;
-                    let (input, _) = token(TokenType::CloseCurly)(input)?;
-
-                    Ok((input, Expression::lambda(VariableName::new(identifier), body)))
-                },
-                "app" => {
-                    // app($f, $x)
-                    let (input, (e0, e1)) = parse_arg_list2(input)?;
-                    Ok((input, Expression::apply(e0, e1)))
                 },
                 "obj" => {
                     // obj { #hd () . e0 | #tl () . e1 }
@@ -307,29 +276,19 @@ pub struct Expression(pub Rc<Expression0>);
 
 #[derive(Debug)]
 pub enum Expression0 {
+    Int(i32),
+    OperationApplication(OperationCode, Expression, Expression),
     Call(FunctionName, Vec<Expression>),
     Tagged(Tag, Expression),
     Tuple(Vec<Expression>),
-    Int(i32),
-    OperationApplication(OperationCode, Expression, Expression),
-    // TODO: delete Bool and if. You got match, that should be enough.
-    Bool(bool),
-    If(Expression, Expression, Expression),
-    // TODO: Add some sort of if-then-else. I guess then you also want to have boolean expressions.
-    // IfIntEqThenElse {  }
+    Match { arg: Expression, branches: Vec<PatternBranch> },
     VarUse(VariableName),
     Let { arg: Expression, var: VariableName, body: Expression },
-    // WARNING: Pattern matching on tuples commits! Once the algorithms enters a tuple, it won't be
-    // able to go back.
-    Match { arg: Expression, branches: Vec<PatternBranch> },
     // Note that the body is in Rc. This is because when evaluating a lambda expression,
     // a closure value is createad which references this body.
     // TODO: If I passed the expression not as a reference, but directly,
     //       couldn't I just take ownership of the body?
-    Lambda { var: VariableName, body: Expression },
-    // Fat-chance
-    LambdaRec { rec_var: VariableName, var: VariableName, body: Expression },
-    Apply(Expression, Expression),
+    // Lambda { var: VariableName, body: Expression },
     Object { branches: Rc<Vec<PatternBranch>> },
     Send(Expression, Expression),
 }
@@ -398,15 +357,10 @@ impl Expression {
     fn tagged(tag: Tag, e: Expression) -> Self { Self(Rc::new(Expression0::Tagged(tag, e))) }
     fn tuple(args: Vec<Expression>) -> Self { Self(Rc::new(Expression0::Tuple(args))) }
     fn int(x: i32) -> Self { Self(Rc::new(Expression0::Int(x))) }
-    fn bool(b: bool) -> Self { Self(Rc::new(Expression0::Bool(b))) }
     fn operation_application(op_code: OperationCode, e0: Self, e1: Self) -> Self { Self(Rc::new(Expression0::OperationApplication(op_code, e0, e1))) }
-    fn if_(e: Self, e0: Self, e1: Self) -> Self { Self(Rc::new(Expression0::If(e, e0, e1))) }
     fn match_(arg: Self, branches: Vec<PatternBranch>) -> Self { Self(Rc::new(Expression0::Match { arg, branches })) }
     fn var_use(var: VariableName) -> Self { Self(Rc::new(Expression0::VarUse(var))) }
     fn let_(arg: Self, var: VariableName, body: Self) -> Self { Self(Rc::new(Expression0::Let { arg, var, body })) }
-    fn lambda(var: VariableName, body: Self) -> Self { Self(Rc::new(Expression0::Lambda { var, body })) }
-    fn lambda_rec(rec_var: VariableName, var: VariableName, body: Self) -> Self { Self(Rc::new(Expression0::LambdaRec { rec_var, var, body })) }
-    fn apply(closure: Self, arg: Self) -> Self { Self(Rc::new(Expression0::Apply(closure, arg))) }
     // TODO: The double Rc<_> here is very suspicious.
     fn object(branches: Vec<PatternBranch>) -> Self { Self(Rc::new(Expression0::Object { branches: Rc::new(branches) })) }
     fn send(obj: Self, msg: Self) -> Self { Self(Rc::new(Expression0::Send(obj, msg))) }
@@ -423,7 +377,6 @@ pub enum OperationCode {
 #[derive(Debug, Clone)]
 pub enum Value {
     Int(i32),
-    Bool(bool),
     Tagged(Tag, Box<Value>), // It's interesting that I don't have to do Rc here.
     Tuple(Vec<Value>), // Would be cool if we could use Rc<[Value]>, since we don't need to resize
                            // tuples at runtime.
@@ -439,12 +392,11 @@ pub enum Value {
     //       Hmm, I feel like body has to be in Rc...
     //       since conceptually multiple closures with differing captured environments
     //       could point to the same body expression.
-    Closure { captured_env: Env, var: VariableName, body: Expression },
+    // Closure { captured_env: Env, var: VariableName, body: Expression },
     // TODO: Are you sure about the Rc<_> in ClosureObject?
     ClosureObject { captured_env: Env, branches: Rc<Vec<PatternBranch>> },
     // But remember that to evaluate closure, we'll have to evaluate the underlying expression (in
     // the captured environment). But `eval_direct` takes ownership of the Expression.
-    // So it seems that
 }
 
 impl fmt::Display for Value {
@@ -452,7 +404,6 @@ impl fmt::Display for Value {
         use Value::*;
         match self {
             Int(x) => write!(f, "{}", x),
-            Bool(b) => write!(f, "{}", b),
             Tagged(tag, val) => write!(f, "{} {}", tag, val),
             Tuple(values) => {
                 write!(f, "(")?;
@@ -465,7 +416,6 @@ impl fmt::Display for Value {
                 }
                 write!(f, ")")
             },
-            Closure { ..  } => write!(f, "@{{...}}"),
             ClosureObject { ..  } => write!(f, "@{{...}}"),
         }
     }
@@ -589,7 +539,6 @@ fn eval(program: &Program, env: &Env, e: &Expression) -> Result<Value, Error> {
             Ok(Value::Tuple(values))
         },
         Int(x) => Ok(Value::Int(*x)),
-        Bool(x) => Ok(Value::Bool(*x)),
         OperationApplication(code, e0, e1) => {
             let val0 = eval(program, env, e0)?;
             let val1 = eval(program, env, e1)?;
@@ -600,29 +549,13 @@ fn eval(program: &Program, env: &Env, e: &Expression) -> Result<Value, Error> {
                         Add => Ok(Value::Int(x0 + x1)),
                         Sub => Ok(Value::Int(x0 - x1)),
                         Mul => Ok(Value::Int(x0 * x1)),
-                        Eq => Ok(Value::Bool(x0 == x1)),
+                        Eq => if x0 == x1 {
+                            Ok(Value::Tagged(Tag::new("T".to_string()), Box::new(Value::Tuple(vec![]))))
+                        } else {
+                            Ok(Value::Tagged(Tag::new("F".to_string()), Box::new(Value::Tuple(vec![]))))
+                        }
                     }
                 },
-                (Value::Bool(b0), Value::Bool(b1)) => {
-                    use OperationCode::*;
-                    match code {
-                        Eq => Ok(Value::Bool(b0 == b1)),
-                        _ => todo!(),
-                    }
-                }
-                _ => todo!(),
-            }
-        },
-        If(arg, then_branch, else_branch) => {
-            let arg_value = eval(program, env, arg)?;
-            match arg_value {
-                Value::Bool(b) => {
-                    if b {
-                        eval(program, env, then_branch)
-                    } else {
-                        eval(program, env, else_branch)
-                    }
-                }
                 _ => todo!(),
             }
         },
@@ -635,27 +568,6 @@ fn eval(program: &Program, env: &Env, e: &Expression) -> Result<Value, Error> {
             let arg_value = eval(program, env, arg)?;
             let env = env.clone().extend(var.clone(), arg_value);
             eval(program, &env, body)
-        },
-        Lambda { var, body } => {
-            Ok(Value::Closure { captured_env: env.clone(), var: var.clone(), body: body.clone() })
-        },
-        LambdaRec { rec_var, var, body } => {
-            let closure = Value::Closure { captured_env: env.clone(), var: var.clone(), body: body.clone() };
-            let env = Rc::new(env.clone().extend(rec_var.clone(), closure));
-            // closure.env = env;
-            // TODO: How the hell can I do this? I probably need interior mutability for this,
-            // that's insane.
-            todo!()
-        },
-        Apply(e0, e1) => {
-            let closure = eval(program, env, e0)?;
-            match closure {
-                Value::Closure { captured_env: closure_env, var, body } => {
-                    let arg_value = eval(program, env, e1)?;
-                    eval(program, &closure_env.extend(var, arg_value), &body)
-                },
-                _ => todo!(),
-            }
         },
         Object { branches } => {
             Ok(Value::ClosureObject { captured_env: env.clone(), branches: Rc::clone(branches) })

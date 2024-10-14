@@ -5,7 +5,9 @@ cargo run
 
 let { foo = 123 . $foo }
 
-fn { x . $x }
+obj { x . $x }
+
+send(obj { x . $x }, 123)
 
 :def fn f(x) { $x }
 
@@ -32,13 +34,15 @@ pyth(3, 4)
 
 $bar
 
-let { x = 6 . if ==(2, +(1, 1)) { 12 } { *(3, $x) } }
+==(2, +(1, 1))
+
+let { x = 6 . match ==(2, +(1, 1)) { #T() . $x | #F() . *(3, $x) } }
 
 :def fn foo(x) { 1 }
 
 *(3, 4)
 
-let { inc = fn { x . +($x, 1) } . app($inc, 5) }
+let { inc = fn { x . +($x, 1) } . send($inc, 5) }
 
 (1, 2, 3)
 
@@ -56,7 +60,7 @@ let { inc = fn { x . +($x, 1) } . app($inc, 5) }
 
 #nil ()
 
-:def fn fct(x) { if ==($x, 0) { 1 } { *($x, fct(sub($x, 1))) } }
+:def fn fct(x) { match ==($x, 0) { #T() . 1 | #F() . *($x, fct(sub($x, 1))) } }
 
 fct(5)
 
@@ -76,21 +80,17 @@ match #foo #yeesh 512 { #foo #bar x . $x | #foo #yeesh y . $y }
 match #foo #yeesh 512 { #foo #yeesh y . $y | #foo #bar x . $x }
 
 
-:def fn map(f, xs) { match $xs { #nil() . #nil() | #cons(x, xs) . #cons(app($f, $x), map($f, $xs)) } }
+:def fn map(f, xs) { match $xs { #nil() . #nil() | #cons(x, xs) . #cons(send($f, $x), map($f, $xs)) } }
 
 #cons(20, #cons(10, #nil()))
 
-map(fn { x . *($x, $x) }, #cons(10, #nil()))
+map(obj { x . *($x, $x) }, #cons(10, #nil()))
 
-:def fn range-iter(n, i) { if ==($n, $i) { #nil() } { #cons($i, range-iter($n, +($i, 1))) } }
+:def fn range-iter(n, i) { match ==($n, $i) { #T() . #nil() | #F() . #cons($i, range-iter($n, +($i, 1))) } }
 
 range-iter(5, 0)
 
-map(fn { x . *($x, $x) }, range-iter(5, 0))
-
-// cartesian vs linear identifiers
-fn f(x, y, z)[u, v] {
-}
+map(obj { x . *($x, $x) }, range-iter(5, 0))
 
 
 obj { #force () . 123 }
@@ -100,3 +100,47 @@ send(obj { #force () . 123 }, #force ())
 :def fn nats(n) { obj { #hd () . $n | #tl () . nats(+($n, 1)) } }
 
 send(send(send(nats(0), #tl ()), #tl ()), #hd ())
+
+nats(0) @ #tl() @ #tl() @ #tl() @ #hd()
+
+nats(0)
+
+// What is the type of nats(0)?
+
+// Fascinating. This has "functions" built in.
+
+type NatStream = &{ #hd Unit . i32 | #tl Unit . NatStream }
+
+// i.e.
+
+type NatStream = &{ #hd () . i32 | #tl () . NatStream }
+
+// lazy pair
+
+obj { #fst () . 23 | #snd () . 512 }
+
+send(obj { #fst () . 23 | #snd () . 512 }, #snd ())
+
+type Arrow(A, B) = &{ #send A . B }
+
+obj { #send x . body }
+
+
+// cartesian vs linear identifiers
+fn f(x, y, z)[u, v] {
+}
+
+
+// parsing objects
+
+type Option(A) = +{ #some A | #none () }
+
+type Parser(Token, A, E) = &{
+| #next Token . +{ #err E | #continue Parser(Token, A, E) }
+| #force Unit . +{ #err E | #ok A }
+}
+
+given p : Parser(Token, A, E)
+we can give it a token, and it can parse it somehow, then return a new parser object that awaits for next token...
+After a while we can force the parser to give us the output, which is like giving it an EOF
+
