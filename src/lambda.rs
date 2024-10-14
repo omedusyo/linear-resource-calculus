@@ -1,6 +1,7 @@
 use std::rc::Rc;
 use std::fmt;
 use crate::tokenizer::{TokenStream, Token, TokenType, anyidentifier, anytoken, identifier, token, peek_anytoken, peek_token, delimited_nonempty_vector, delimited_vector};
+use crate::identifier::{VariableName, FunctionName, Tag};
 use crate::IResult0;
 use std::collections::HashMap;
 
@@ -196,34 +197,6 @@ pub fn parse_expression(input: TokenStream) -> IResult0<Expression> {
     }
 }
 
-// ===Identifiers===
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct VariableName(pub Rc<String>);
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct FunctionName(pub Rc<String>);
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Tag(pub Rc<String>); // This is basically constructor name.
-
-impl VariableName {
-    fn new(str: String) -> Self {
-        Self(Rc::new(str))
-    }
-}
-
-impl FunctionName {
-    fn new(str: String) -> Self {
-        Self(Rc::new(str))
-    }
-}
-
-impl Tag {
-    fn new(str: String) -> Self {
-        Self(Rc::new(str))
-    }
-}
-
 // ===Program===
 pub struct Program {
     pub function_definitions: HashMap<FunctionName, FunctionDefinition>,
@@ -257,7 +230,6 @@ impl Program {
     }
 }
 
-// ===Declarations===
 #[derive(Debug)]
 pub struct FunctionDefinition {
     name: FunctionName,
@@ -374,6 +346,7 @@ pub enum OperationCode {
     Eq,
 }
 
+// ===Values===
 #[derive(Debug, Clone)]
 pub enum Value {
     Int(i32),
@@ -427,9 +400,8 @@ impl fmt::Display for Tag {
     }
 }
 
-// Apparently Rust is unable to derive Clone for Value, because Env doesn't implement Clone, even
-// though it is wrapped in Rc<_>.
 
+// ===Error===
 #[derive(Debug, PartialEq)]
 pub enum Error {
     FunctionLookupFailure(FunctionName),

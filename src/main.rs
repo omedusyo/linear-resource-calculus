@@ -1,4 +1,5 @@
 mod tokenizer;
+mod identifier;
 mod lambda;
 mod lambda_linear;
 
@@ -131,7 +132,7 @@ fn update(state: &mut State, msg: Msg)  {
             },
             Command::ListFn => {
                 for fn_name in &state.program.function_definitions_ordering {
-                    print!("{}, ", (*fn_name).0) // needs to be flushed...
+                    print!("{}, ", fn_name.str()) // needs to be flushed...
                 }
                 println!(""); // flushes stdout
             },
