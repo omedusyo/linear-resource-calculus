@@ -272,6 +272,15 @@ pub enum Expression0 {
     Send(Expression, Expression),
 }
 
+#[derive(Debug, PartialEq)]
+pub enum OperationCode {
+    Add,
+    Sub,
+    Mul,
+    Eq,
+}
+
+
 #[derive(Debug, Clone)]
 pub struct PatternBranch {
     pub pattern: Pattern,
@@ -283,6 +292,20 @@ pub enum Pattern {
     Variable(VariableName),
     Tagged(Tag, Box<Pattern>),
     Tuple(Vec<Pattern>),
+}
+
+impl Expression {
+    fn int(x: i32) -> Self { Self(Rc::new(Expression0::Int(x))) }
+    fn operation_application(op_code: OperationCode, e0: Self, e1: Self) -> Self { Self(Rc::new(Expression0::OperationApplication(op_code, e0, e1))) }
+    fn call(fn_name: FunctionName, args: Vec<Self>) -> Self { Self(Rc::new(Expression0::Call(fn_name, args))) }
+    fn tagged(tag: Tag, e: Expression) -> Self { Self(Rc::new(Expression0::Tagged(tag, e))) }
+    fn tuple(args: Vec<Expression>) -> Self { Self(Rc::new(Expression0::Tuple(args))) }
+    fn match_(arg: Self, branches: Vec<PatternBranch>) -> Self { Self(Rc::new(Expression0::Match { arg, branches })) }
+    fn var_use(var: VariableName) -> Self { Self(Rc::new(Expression0::VarUse(var))) }
+    fn let_(arg: Self, var: VariableName, body: Self) -> Self { Self(Rc::new(Expression0::Let { arg, var, body })) }
+    // TODO: The double Rc<_> here is very suspicious.
+    fn object(branches: Vec<PatternBranch>) -> Self { Self(Rc::new(Expression0::Object { branches: Rc::new(branches) })) }
+    fn send(obj: Self, msg: Self) -> Self { Self(Rc::new(Expression0::Send(obj, msg))) }
 }
 
 type PatternMatchResult = Option<Vec<(VariableName, Value)>>;
@@ -331,34 +354,12 @@ impl Pattern {
     }
 }
 
-impl Expression {
-    fn call(fn_name: FunctionName, args: Vec<Self>) -> Self { Self(Rc::new(Expression0::Call(fn_name, args))) }
-    fn tagged(tag: Tag, e: Expression) -> Self { Self(Rc::new(Expression0::Tagged(tag, e))) }
-    fn tuple(args: Vec<Expression>) -> Self { Self(Rc::new(Expression0::Tuple(args))) }
-    fn int(x: i32) -> Self { Self(Rc::new(Expression0::Int(x))) }
-    fn operation_application(op_code: OperationCode, e0: Self, e1: Self) -> Self { Self(Rc::new(Expression0::OperationApplication(op_code, e0, e1))) }
-    fn match_(arg: Self, branches: Vec<PatternBranch>) -> Self { Self(Rc::new(Expression0::Match { arg, branches })) }
-    fn var_use(var: VariableName) -> Self { Self(Rc::new(Expression0::VarUse(var))) }
-    fn let_(arg: Self, var: VariableName, body: Self) -> Self { Self(Rc::new(Expression0::Let { arg, var, body })) }
-    // TODO: The double Rc<_> here is very suspicious.
-    fn object(branches: Vec<PatternBranch>) -> Self { Self(Rc::new(Expression0::Object { branches: Rc::new(branches) })) }
-    fn send(obj: Self, msg: Self) -> Self { Self(Rc::new(Expression0::Send(obj, msg))) }
-}
-
-#[derive(Debug, PartialEq)]
-pub enum OperationCode {
-    Add,
-    Sub,
-    Mul,
-    Eq,
-}
-
 // ===Values===
 #[derive(Debug, Clone)]
 pub enum Value {
     Int(i32),
     Tagged(Tag, Box<Value>), // It's interesting that I don't have to do Rc here.
-    Tuple(Vec<Value>), // Would be cool if we could use Rc<[Value]>, since we don't need to resize
+    Tuple(Vec<Value>), // Would be cool if we could use Box<[Value]>, since we don't need to resize
                            // tuples at runtime.
                            // But it seems you can create an array of only statically known size.
                            // 
@@ -407,16 +408,6 @@ impl fmt::Display for Tag {
     }
 }
 
-
-// ===Error===
-#[derive(Debug, PartialEq)]
-pub enum Error {
-    FunctionLookupFailure(FunctionName),
-    FunctionCallArityMismatch { fn_name: FunctionName, expected: usize, received: usize },
-    VariableLookupFailure(VariableName),
-    UnableToFindMatchingPattern,
-}
-
 // ===Environment===
 #[derive(Debug, Clone)]
 pub struct Env(Rc<Env0>);
@@ -459,37 +450,19 @@ impl Env {
     }
 }
 
+// ===Error===
+#[derive(Debug, PartialEq)]
+pub enum Error {
+    FunctionLookupFailure(FunctionName),
+    FunctionCallArityMismatch { fn_name: FunctionName, expected: usize, received: usize },
+    VariableLookupFailure(VariableName),
+    UnableToFindMatchingPattern,
+}
+
 // ===Evaluation===
 pub fn eval_start(program: &Program, e: Expression) -> Result<Value, Error> {
     let value = eval(program, &Env::new(), &e)?;
     Ok(value)
-}
-
-fn apply_function(program: &Program, fn_name: FunctionName, arg_values: Vec<Value>) -> Result<Value, Error> {
-    let Some(fn_def) = program.get_function_definition(fn_name.clone()) else { return Err(Error::FunctionLookupFailure(fn_name)) };
-    let num_of_arguments: usize = fn_def.parameters.len();
-    if num_of_arguments != arg_values.len() {
-        return Err(Error::FunctionCallArityMismatch { fn_name, expected: num_of_arguments, received: arg_values.len() })
-    }
-    
-    let mut bindings: Vec<(VariableName, Value)> = Vec::with_capacity(num_of_arguments);
-    for (i, val) in arg_values.into_iter().enumerate() {
-        bindings.push((fn_def.parameters[i].clone(), val));
-    }
-    eval(program, &Env::new().extend_many(bindings), &fn_def.body)
-}
-
-fn apply_msg_to_branches(program: &Program, env: &Env, branches: &[PatternBranch], val: &Value) -> Result<Value, Error> {
-    for branch in branches {
-        match branch.pattern.match_(val) {
-            Some(bindings) => {
-                let env = env.clone().extend_many(bindings);
-                return eval(program, &env, &branch.body)
-            },
-            None => {},
-        }
-    }
-    Err(Error::UnableToFindMatchingPattern)
 }
 
 // TODO: Why does e have to be passed as a reference? 
@@ -499,24 +472,6 @@ fn apply_msg_to_branches(program: &Program, env: &Env, branches: &[PatternBranch
 fn eval(program: &Program, env: &Env, e: &Expression) -> Result<Value, Error> {
     use Expression0::*;
     match &*(e.0) {
-        Call(fn_name, args) => {
-            let mut values: Vec<Value> = Vec::with_capacity(args.len());
-            for arg in args {
-                values.push(eval(program, env, &arg)?);
-            }
-            apply_function(program, fn_name.clone(), values)
-        },
-        Tagged(tag, e) => {
-            let val = eval(program, env, e)?;
-            Ok(Value::Tagged(tag.clone(), Box::new(val)))
-        },
-        Tuple(args) => {
-            let mut values: Vec<Value> = Vec::with_capacity((&*args).len());
-            for arg in &*args {
-                values.push(eval(program, env, arg)?)
-            }
-            Ok(Value::Tuple(values))
-        },
         Int(x) => Ok(Value::Int(*x)),
         OperationApplication(code, e0, e1) => {
             let val0 = eval(program, env, e0)?;
@@ -537,6 +492,24 @@ fn eval(program: &Program, env: &Env, e: &Expression) -> Result<Value, Error> {
                 },
                 _ => todo!(),
             }
+        },
+        Call(fn_name, args) => {
+            let mut values: Vec<Value> = Vec::with_capacity(args.len());
+            for arg in args {
+                values.push(eval(program, env, &arg)?);
+            }
+            apply_function(program, fn_name.clone(), values)
+        },
+        Tagged(tag, e) => {
+            let val = eval(program, env, e)?;
+            Ok(Value::Tagged(tag.clone(), Box::new(val)))
+        },
+        Tuple(args) => {
+            let mut values: Vec<Value> = Vec::with_capacity((&*args).len());
+            for arg in &*args {
+                values.push(eval(program, env, arg)?)
+            }
+            Ok(Value::Tuple(values))
         },
         Match { arg, branches } => {
             let arg_value = eval(program, env, arg)?;
@@ -562,4 +535,31 @@ fn eval(program: &Program, env: &Env, e: &Expression) -> Result<Value, Error> {
             }
         }
     }
+}
+
+fn apply_msg_to_branches(program: &Program, env: &Env, branches: &[PatternBranch], val: &Value) -> Result<Value, Error> {
+    for branch in branches {
+        match branch.pattern.match_(val) {
+            Some(bindings) => {
+                let env = env.clone().extend_many(bindings);
+                return eval(program, &env, &branch.body)
+            },
+            None => {},
+        }
+    }
+    Err(Error::UnableToFindMatchingPattern)
+}
+
+fn apply_function(program: &Program, fn_name: FunctionName, arg_values: Vec<Value>) -> Result<Value, Error> {
+    let Some(fn_def) = program.get_function_definition(fn_name.clone()) else { return Err(Error::FunctionLookupFailure(fn_name)) };
+    let num_of_arguments: usize = fn_def.parameters.len();
+    if num_of_arguments != arg_values.len() {
+        return Err(Error::FunctionCallArityMismatch { fn_name, expected: num_of_arguments, received: arg_values.len() })
+    }
+    
+    let mut bindings: Vec<(VariableName, Value)> = Vec::with_capacity(num_of_arguments);
+    for (i, val) in arg_values.into_iter().enumerate() {
+        bindings.push((fn_def.parameters[i].clone(), val));
+    }
+    eval(program, &Env::new().extend_many(bindings), &fn_def.body)
 }

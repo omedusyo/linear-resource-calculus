@@ -1,3 +1,10 @@
 * linear lambda calculus
 * separate parsers into their own modules (each lambda calc could get a local module named `p` s.t. it would contain the parsers)
 * multiline repl (might be hard, since you'd have to somehow have suspendable/resumable parsers, which requires some sort of continuations)
+* in cartesian lambda calculus for Vlaue::ClosureObject { captured_env: Env, branches: Rc<Vec<PatternBranch>> },
+  do you really need the Rc<_>?
+
+
+* example programs:
+  - cartesian/linear lambda calc interpreters
+  - suspendable/resumable parser objects (e.g. for when you get a stream of tokens from user, and you don't get all of the input at once)

@@ -1,6 +1,6 @@
 mod tokenizer;
 mod identifier;
-mod lambda;
+mod lambda_cartesian;
 mod lambda_linear;
 
 use std::rc::Rc;
@@ -15,7 +15,7 @@ use rustyline::{
     history::FileHistory,
     config::Builder as LineBuilder,
 };
-use lambda::{FunctionDefinition, Expression, Program, eval_start, parse_function_definition, parse_expression, parse_program};
+use lambda_cartesian::{FunctionDefinition, Expression, Program, eval_start, parse_function_definition, parse_expression, parse_program};
 use tokenizer::TokenStream;
 
 type IResult<I, O> = Result<(I, O), nom::Err<nom::error::Error<I>>>;
