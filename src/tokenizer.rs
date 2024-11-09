@@ -9,6 +9,8 @@ use nom::{
 pub enum Token {
     OpenParen,
     CloseParen,
+    OpenBracket,
+    CloseBracket,
     OpenCurly,
     CloseCurly,
     Identifier(String),
@@ -16,6 +18,7 @@ pub enum Token {
     BindingSeparator,
     Comma,
     OrSeparator,
+    VarLookupSymbol,
     VarUseSymbol,
     TagSymbol,
     Int(i32),
@@ -26,6 +29,8 @@ pub enum Token {
 pub enum TokenType {
     OpenParen,
     CloseParen,
+    OpenBracket,
+    CloseBracket,
     OpenCurly,
     CloseCurly,
     Identifier,
@@ -33,6 +38,7 @@ pub enum TokenType {
     BindingSeparator,
     Comma,
     OrSeparator,
+    VarLookupSymbol,
     VarUseSymbol,
     TagSymbol,
     Int,
@@ -45,6 +51,8 @@ impl Token {
         match self {
             OpenParen => TokenType::OpenParen,
             CloseParen => TokenType::CloseParen,
+            OpenBracket => TokenType::OpenBracket,
+            CloseBracket => TokenType::CloseBracket,
             OpenCurly => TokenType::OpenCurly,
             CloseCurly => TokenType::CloseCurly,
             Identifier(_) => TokenType::Identifier,
@@ -52,6 +60,7 @@ impl Token {
             BindingSeparator => TokenType::BindingSeparator,
             Comma => TokenType::Comma,
             OrSeparator => TokenType::OrSeparator,
+            VarLookupSymbol => TokenType::VarLookupSymbol,
             VarUseSymbol => TokenType::VarUseSymbol,
             TagSymbol => TokenType::TagSymbol,
             Int(_) => TokenType::Int,
@@ -66,13 +75,13 @@ impl Token {
 
 fn is_forbiden_char(c: char) -> bool {
     match c {
-        '(' | ')' | '{' | '}' | '.' | ',' | '|' | '$' | '#' | ' ' | '\t' | '\r' | '\n' => true,
+        '(' | ')' | '{' | '}' | '.' | ',' | '|' | '$' | '%' | '#' | ' ' | '\t' | '\r' | '\n' => true,
         _ => false,
     }
 }
 
 pub fn parse_identifier(input: &str) -> IResult<&str, String> {
-    // Identifier can't start with a char in "(){},.|$#-012345689=".
+    // Identifier can't start with a char in "(){},.|%$#-012345689=".
     // Afterwards we have a sequence of any chars except those contained in "(){},.|$#" or
     // whitespace.
     // We also allow the identifier to start with double equals e.g. "==" or "==foo"
@@ -141,6 +150,11 @@ pub fn parse_token(input: &str) -> IResult<&str, Token> {
             Ok((input, Token::OrSeparator))
         },
         '$' => {
+            let (input, _) = anychar(input)?;
+            // Note how there's no consumption of whitespace.
+            Ok((input, Token::VarLookupSymbol))
+        },
+        '%' => {
             let (input, _) = anychar(input)?;
             // Note how there's no consumption of whitespace.
             Ok((input, Token::VarUseSymbol))

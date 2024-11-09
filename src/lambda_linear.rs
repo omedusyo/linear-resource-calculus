@@ -4,6 +4,227 @@ use crate::identifier::{VariableName, FunctionName, Tag, variable_name};
 use crate::IResult0;
 use std::collections::HashMap;
 
+// ===parser===
+#[derive(Debug, PartialEq, Clone)]
+pub enum OperationCode {
+    Add,
+    Sub,
+    Mul,
+    Eq,
+}
+
+fn identifier_to_operation_code(str: &str) -> Option<OperationCode> {
+    match str {
+        "+" => Some(OperationCode::Add),
+        "*" => Some(OperationCode::Mul),
+        "sub" => Some(OperationCode::Sub),
+        "==" => Some(OperationCode::Eq),
+        _ => None
+    }
+}
+
+fn parse_operator_arguments(op_code: OperationCode, input: TokenStream) -> IResult0<Expression> {
+    use OperationCode::*;
+    match op_code {
+        Add => {
+            let (input, (e0, e1)) = parse_arg_list2(input)?;
+            Ok((input, Expression::operation_application(op_code, e0, e1)))
+        },
+        Sub => {
+            let (input, (e0, e1)) = parse_arg_list2(input)?;
+            Ok((input, Expression::operation_application(op_code, e0, e1)))
+        },
+        Mul => {
+            let (input, (e0, e1)) = parse_arg_list2(input)?;
+            Ok((input, Expression::operation_application(op_code, e0, e1)))
+        },
+        Eq => {
+            let (input, (e0, e1)) = parse_arg_list2(input)?;
+            Ok((input, Expression::operation_application(op_code, e0, e1)))
+        },
+    }
+}
+
+fn parse_arg_list2(input: TokenStream) -> IResult0<(Expression, Expression)> {
+    // "[e0, e1]  "
+    let (input, _) = token(TokenType::OpenBracket)(input)?;
+    let (input, e0) = parse_expression(input)?;
+    let (input, _) = token(TokenType::Comma)(input)?;
+    let (input, e1) = parse_expression(input)?;
+    let (input, _) = token(TokenType::CloseBracket)(input)?;
+    Ok((input, (e0, e1)))
+}
+
+// No parens, just a possibly empty comma separated list of identifiers.
+fn parameter_vector(input: TokenStream) -> IResult0<Vec<VariableName>> {
+    // TODO: Check uniqueness.
+    delimited_vector(variable_name, token(TokenType::Comma))(input)
+}
+
+// No parens, just a possibly empty comma separated list of expressions.
+fn expression_vector(input: TokenStream) -> IResult0<Vec<Expression>> {
+    delimited_vector(parse_expression, token(TokenType::Comma))(input)
+}
+
+pub fn parse_program(input: TokenStream) -> IResult0<Program> {
+    let (input, definitions) = vector(parse_function_definition)(input)?;
+    let mut program = Program::new();
+    for definition in definitions {
+        let name = definition.name.clone();
+        program.function_definitions.insert(name.clone(), definition);
+        program.function_definitions_ordering.push(name);
+    }
+    Ok((input, program))
+}
+
+pub fn parse_function_definition(input: TokenStream) -> IResult0<FunctionDefinition> {
+    let (input, _) = identifier("fn")(input)?;
+    let (input, function_name_str) = anyidentifier(input)?;
+    let (input, _) = token(TokenType::OpenBracket)(input)?;
+    let (input, parameters) = parameter_vector(input)?;
+    let (input, _) = token(TokenType::CloseBracket)(input)?;
+
+    let (input, _) = token(TokenType::OpenCurly)(input)?;
+    let (input, body) = parse_expression(input)?;
+    let (input, _) = token(TokenType::CloseCurly)(input)?;
+    Ok((input, FunctionDefinition { name: FunctionName::new(function_name_str), parameters, body }))
+}
+
+fn parse_pattern_sequence(input: TokenStream) -> IResult0<Vec<Pattern>> {
+    delimited_vector(parse_pattern, token(TokenType::Comma))(input)
+}
+
+fn parse_pattern(input: TokenStream) -> IResult0<Pattern> {
+    let (input, token0) = anytoken(input)?;
+    use Token::*;
+    match token0 {
+        TagSymbol => {
+            // Tag pattern
+            let (input, var_name) = anyidentifier(input)?;
+            let (input, pattern) = parse_pattern(input)?;
+            Ok((input, Pattern::Tagged(Tag::new(var_name), Box::new(pattern))))
+        },
+        OpenBracket => {
+            // Tuple pattern
+            let (input, patterns) = parse_pattern_sequence(input)?;
+            let (input, _) = token(TokenType::CloseBracket)(input)?;
+            Ok((input, Pattern::Tuple(patterns)))
+        },
+        Identifier(var_name) => Ok((input, Pattern::Variable(VariableName::new(var_name)))),
+        _ => Err(nom::Err::Error(nom::error::Error { input: input.input, code: nom::error::ErrorKind::Alt })),
+    }
+}
+
+pub fn parse_branch(input: TokenStream) -> IResult0<PatternBranch> {
+    let (input, pattern) = parse_pattern(input)?;
+    let (input, _) = token(TokenType::BindingSeparator)(input)?;
+    let (input, body) = parse_expression(input)?;
+
+    Ok((input, PatternBranch { pattern, body }))
+}
+
+pub fn parse_branches(input: TokenStream) -> IResult0<Vec<PatternBranch>> {
+    delimited_vector(parse_branch, token(TokenType::OrSeparator))(input)
+}
+
+// x = e0
+pub fn parse_var_binding(input: TokenStream) -> IResult0<(VariableName, Expression)> {
+    let (input, identifier) = anyidentifier(input)?;
+    let (input, _) = token(TokenType::Eq)(input)?;
+    let (input, arg) = parse_expression(input)?;
+
+    Ok((input, (VariableName::new(identifier), arg)))
+}
+
+// x = e0, y = e1, z = e2
+pub fn parse_var_bindings(input: TokenStream) -> IResult0<Bindings> {
+    let (input, var_expr_pair) = delimited_vector(parse_var_binding, token(TokenType::Comma))(input)?;
+    let mut bindings = Bindings0::Empty;
+    for (var, expr) in var_expr_pair {
+        bindings = Bindings0::Push { var, expr, parent: Bindings(Box::new(bindings)) };
+    }
+    Ok((input, Bindings(Box::new(bindings))))
+}
+
+pub fn parse_expression(input: TokenStream) -> IResult0<Expression> {
+    let (input, token0) = anytoken(input)?;
+    use Token::*;
+    match token0 {
+        Int(x) => Ok((input, Expression::int(x))),
+        VarUseSymbol => {
+            let (input, var_name) = anyidentifier(input)?;
+            Ok((input, Expression::var_use(VariableName::new(var_name))))
+        },
+        TagSymbol => {
+            let (input, tag) = anyidentifier(input)?;
+            let (input, arg) = parse_expression(input)?;
+            Ok((input, Expression::tagged(Tag::new(tag), arg)))
+        },
+        OpenParen => {
+            todo!("Unexpected `(` in linear calculus.")
+        },
+        Identifier(identifier) => {
+            match &identifier[..] {
+                "let" => {
+                    // let { x = 5 . body }
+                    let (input, _) = token(TokenType::OpenCurly)(input)?;
+                    let (input, (var_name, arg)) = parse_var_binding(input)?;
+                    let (input, _) = token(TokenType::BindingSeparator)(input)?;
+
+                    let (input, body) = parse_expression(input)?;
+                    let (input, _) = token(TokenType::CloseCurly)(input)?;
+
+                    Ok((input, Expression::let_(arg, var_name, body)))
+                },
+                "match" => {
+                    let (input, arg) = parse_expression(input)?;
+                    let (input, _) = token(TokenType::OpenCurly)(input)?;
+                    let (input, branches) = parse_branches(input)?;
+                    let (input, _) = token(TokenType::CloseCurly)(input)?;
+
+                    Ok((input, Expression::match_(arg, branches)))
+                },
+                "obj" => {
+                    // obj { x = e0, y = e1 . #hd () . body0 | #tl () . body1 }
+                    let (input, _) = token(TokenType::OpenCurly)(input)?;
+                    let (input, captured_bindings) = parse_var_bindings(input)?;
+                    let (input, _) = token(TokenType::BindingSeparator)(input)?;
+                    let (input, branches) = parse_branches(input)?;
+                    let (input, _) = token(TokenType::CloseCurly)(input)?;
+                    Ok((input, Expression::object(captured_bindings, branches)))
+                },
+                "send" => {
+                    // send(%obj, %msg)
+                    let (input, (e0, e1)) = parse_arg_list2(input)?;
+                    Ok((input, Expression::send(e0, e1)))
+                },
+                s => match identifier_to_operation_code(s) {
+                    Some(op_code) => 
+                        parse_operator_arguments(op_code, input),
+                    None => {
+                        let (input, token_match) = peek_token(TokenType::OpenBracket)(input)?;
+                        match token_match {
+                            Some(_) => {
+                                // Here we have a function call
+                                let (input, _) = token(TokenType::OpenBracket)(input)?;
+                                let (input, arguments) = expression_vector(input)?;
+                                let (input, _) = token(TokenType::CloseBracket)(input)?;
+                                Ok((input, Expression::call(FunctionName::new(identifier), arguments)))
+                            },
+                            None => {
+                                // TODO: Check if this is a function application
+                                // I need to peek if the next token is an open paren
+                                Err(nom::Err::Error(nom::error::Error { input: input.input, code: nom::error::ErrorKind::Alt }))
+                            }
+                        }
+                    },
+                },
+            }
+        },
+        _ => Err(nom::Err::Error(nom::error::Error { input: input.input, code: nom::error::ErrorKind::Alt })),
+    }
+}
+
 // ===Program===
 #[derive(Debug)]
 pub struct Program {
@@ -68,6 +289,7 @@ pub struct Expression(pub Box<Expression0>);
 #[derive(Debug, Clone)]
 pub enum Expression0 {
     Int(i32),
+    OperationApplication(OperationCode, Expression, Expression),
     Call(FunctionName, Vec<Expression>),
     Tagged(Tag, Expression),
     Tuple(Vec<Expression>),
@@ -115,6 +337,7 @@ pub enum Pattern {
 
 impl Expression {
     fn int(x: i32) -> Self { Self(Box::new(Expression0::Int(x))) }
+    fn operation_application(op_code: OperationCode, e0: Self, e1: Self) -> Self { Self(Box::new(Expression0::OperationApplication(op_code, e0, e1))) }
     fn call(fn_name: FunctionName, args: Vec<Self>) -> Self { Self(Box::new(Expression0::Call(fn_name, args))) }
     fn tagged(tag: Tag, e: Expression) -> Self { Self(Box::new(Expression0::Tagged(tag, e))) }
     fn tuple(args: Vec<Expression>) -> Self { Self(Box::new(Expression0::Tuple(args))) }
@@ -222,6 +445,30 @@ fn eval(program: Program, env: Env, e: Expression) -> Result<(Program, Env, Valu
     use Expression0::*;
     match *e.0 {
         Int(x) => Ok((program, env, Value::Int(x))),
+        OperationApplication(code, e0, e1) => {
+            let (program, env, val0) = eval(program, env, e0)?;
+            let (program, env, val1) = eval(program, env, e1)?;
+            match (val0, val1) {
+                (Value::Int(x0), Value::Int(x1)) => {
+                    use OperationCode::*;
+                    Ok((
+                        program,
+                        env,
+                        match code {
+                            Add => Value::Int(x0 + x1),
+                            Sub => Value::Int(x0 - x1),
+                            Mul => Value::Int(x0 * x1),
+                            Eq => if x0 == x1 {
+                                Value::Tagged(Tag::new("T".to_string()), Box::new(Value::Tuple(vec![])))
+                            } else {
+                                Value::Tagged(Tag::new("F".to_string()), Box::new(Value::Tuple(vec![])))
+                            }
+                        }
+                    ))
+                },
+                _ => todo!(),
+            }
+        },
         Call(fn_name, args) => {
             let mut values: Vec<Value> = Vec::with_capacity(args.len());
             let mut env = env;
@@ -269,6 +516,9 @@ fn eval(program: Program, env: Env, e: Expression) -> Result<(Program, Env, Valu
         // We should only capture those resources that are needed by the object
         // i.e. we should move them out of the environment, and return the rest of the environment.
         // I think the correct solution for a dynamic language is to have the move explicitely
+        //
+        // This is only a problem in a dynamic language, right? When we have types, the parts of
+        // the environment that are captured can be known statically.
         Object { captured_bindings, branches } => {
             let (program, env, captured_env) = eval_bindings(program, env, captured_bindings)?;
             Ok((program, env, Value::ClosureObject { captured_env, branches }))
@@ -288,15 +538,12 @@ fn eval(program: Program, env: Env, e: Expression) -> Result<(Program, Env, Valu
                 _ => todo!(),
             }
         }
-        _ => {
-            todo!()
-        },
     }
 }
 
 // We return `(Env, Env)`.
 // The first component is what remains of `env`, while the second is the result of evaluating `bindings`
-fn eval_bindings(program: Program, env: Env, bindings: Bindings) -> Result<(Program, Env, Env), Error> {
+fn eval_bindings(mut program: Program, mut env: Env, bindings: Bindings) -> Result<(Program, Env, Env), Error> {
     use Bindings0::*;
     match *bindings.0 {
         Empty => Ok((program, env, Env::new())),
@@ -308,10 +555,6 @@ fn eval_bindings(program: Program, env: Env, bindings: Bindings) -> Result<(Prog
             Ok((program, env, bindings_env_parent))
         },
     }
-}
-
-fn match_with_universal_pattern(program: Program, env: Env, branches: Vec<PatternBranch>, val: Value) -> Result<(Program, Env, Value), Error> {
-    todo!()
 }
 
 //   [v1, v2, v3]

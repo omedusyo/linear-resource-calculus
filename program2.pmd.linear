@@ -1,0 +1,49 @@
+fn id[a] {
+  %a
+}
+
+fn inc[x] {
+  +[%x, 1]
+}
+
+fn dup_bool[b] { match %b {
+  #T[] . [#T[], #T[]]
+| #F[] . [#F[], #F[]]
+}}
+
+fn discard_bool[b] { match %b {
+  #T[] . []
+| #F[] . []
+}}
+
+fn dup_nat[n] { match %n {
+| #zero[] . [#zero[], #zero[]]
+| #succ n . match dup_nat[%n] {
+  | [n0, n1] . [#succ %n0, #succ %n1]
+  }
+}}
+
+fn discard_nat[n] { match %n {
+| #zero [] . []
+| #succ n . discard_nat[%n]
+}}
+
+fn append[xs, ys] { match %xs {
+| #nil [] . %ys
+| #cons [x, xs] . #cons [%x, append[%xs, %ys]]
+}}
+
+fn reverse-loop[xs, state] { match %xs {
+| #nil [] . %state
+| #cons [x, xs] . reverse-loop[%xs, #cons [%x, %state]]
+}}
+
+fn nats[n] { move n = %n obj {
+  #hd [] . %n
+| #tl [] . nats[+[%n, 1]]
+}}
+
+fn example_tuple[] {
+  move obj {  }
+}
+

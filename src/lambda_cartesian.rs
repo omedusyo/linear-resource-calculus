@@ -121,14 +121,28 @@ pub fn parse_branches(input: TokenStream) -> IResult0<Vec<PatternBranch>> {
     delimited_vector(parse_branch, token(TokenType::OrSeparator))(input)
 }
 
+// x = e0
+pub fn parse_var_binding(input: TokenStream) -> IResult0<(VariableName, Expression)> {
+    let (input, identifier) = anyidentifier(input)?;
+    let (input, _) = token(TokenType::Eq)(input)?;
+    let (input, arg) = parse_expression(input)?;
+
+    Ok((input, (VariableName::new(identifier), arg)))
+}
+
+// x = e0, y = e1, z = e2
+// pub fn parse_var_bindings(input: TokenStream) -> IResult0<Vec<(VariableName, Expression)>> {
+//     delimited_vector(parse_var_binding, token(TokenType::Comma))(input)
+// }
+
 pub fn parse_expression(input: TokenStream) -> IResult0<Expression> {
     let (input, token0) = anytoken(input)?;
     use Token::*;
     match token0 {
         Int(x) => Ok((input, Expression::int(x))),
-        VarUseSymbol => {
+        VarLookupSymbol => {
             let (input, var_name) = anyidentifier(input)?;
-            Ok((input, Expression::var_use(VariableName::new(var_name))))
+            Ok((input, Expression::var_lookup(VariableName::new(var_name))))
         },
         TagSymbol => {
             let (input, tag) = anyidentifier(input)?;
@@ -141,21 +155,22 @@ pub fn parse_expression(input: TokenStream) -> IResult0<Expression> {
             let (input, _) = token(TokenType::CloseParen)(input)?;
             Ok((input, Expression::tuple(args)))
         },
+        OpenBracket => {
+            todo!("Unexpected `[` in cartesian calculus.")
+        },
         Identifier(identifier) => {
             match &identifier[..] {
                 "let" => {
                     // let { x = 5 . body }
                     let (input, _) = token(TokenType::OpenCurly)(input)?;
-                    let (input, identifier) = anyidentifier(input)?;
-                    let (input, _) = token(TokenType::Eq)(input)?;
-                    let (input, arg) = parse_expression(input)?;
+                    let (input, (var_name, arg)) = parse_var_binding(input)?;
 
                     let (input, _) = token(TokenType::BindingSeparator)(input)?;
 
                     let (input, body) = parse_expression(input)?;
                     let (input, _) = token(TokenType::CloseCurly)(input)?;
 
-                    Ok((input, Expression::let_(arg, VariableName::new(identifier), body)))
+                    Ok((input, Expression::let_(arg, var_name, body)))
                 },
                 "match" => {
                     let (input, arg) = parse_expression(input)?;
@@ -261,7 +276,7 @@ pub enum Expression0 {
     Tagged(Tag, Expression),
     Tuple(Vec<Expression>),
     Match { arg: Expression, branches: Vec<PatternBranch> },
-    VarUse(VariableName),
+    VarLookup(VariableName),
     Let { arg: Expression, var: VariableName, body: Expression },
     // Note that the body is in Rc. This is because when evaluating a lambda expression,
     // a closure value is createad which references this body.
@@ -301,7 +316,7 @@ impl Expression {
     fn tagged(tag: Tag, e: Expression) -> Self { Self(Rc::new(Expression0::Tagged(tag, e))) }
     fn tuple(args: Vec<Expression>) -> Self { Self(Rc::new(Expression0::Tuple(args))) }
     fn match_(arg: Self, branches: Vec<PatternBranch>) -> Self { Self(Rc::new(Expression0::Match { arg, branches })) }
-    fn var_use(var: VariableName) -> Self { Self(Rc::new(Expression0::VarUse(var))) }
+    fn var_lookup(var: VariableName) -> Self { Self(Rc::new(Expression0::VarLookup(var))) }
     fn let_(arg: Self, var: VariableName, body: Self) -> Self { Self(Rc::new(Expression0::Let { arg, var, body })) }
     // TODO: The double Rc<_> here is very suspicious.
     fn object(branches: Vec<PatternBranch>) -> Self { Self(Rc::new(Expression0::Object { branches: Rc::new(branches) })) }
@@ -516,7 +531,7 @@ fn eval(program: &Program, env: &Env, e: &Expression) -> Result<Value, Error> {
             let arg_value = eval(program, env, arg)?;
             apply_msg_to_branches(program, env, branches, &arg_value)
         },
-        VarUse(var_name) => env.get(var_name.clone()),
+        VarLookup(var_name) => env.get(var_name.clone()),
         Let { arg, var, body } => {
             let arg_value = eval(program, env, arg)?;
             let env = env.clone().extend(var.clone(), arg_value);

@@ -1,0 +1,22 @@
+* Linear pattern matching seems to very different when compared to Cartesian case.
+* In dynamically tagged version of the linear calculus (without explicit types),
+  the objects have to have an explicit list of resources that they capture from the current environment.
+  In static version this can probably be infered at static time.
+  But this "moved" list of resources does have a feel of instance variables from classical OOP.
+* In cartesian calculus, when using a variable, you're just doing a non-destructive lookup in the current environment.
+  In linear calculus, variable usage is a true use, i.e. it tries to find the bound value in current environment,
+  and when it finds it, it literally rips the binding out of the environment. Hence the environment is changed.
+  If it fails to find the bindings, this is considered an error, an analogue of dereferencing a null pointer,
+  which with static type system is impossible.
+  I wonder if Hoare logic is really about this kinda linear calculus.
+  Linear calculus seems to be doing "mutation" right. In fact it seems to show that mutation is not the correct fundamental concept.
+  The correct fundamental concept is that of "becoming" - A thing becomes some other thing, and it may happen that the type changes too.
+  And mutation is just a special case, where the types happen to stay the same.
+* Sending "messages" to objects is very different when it comes to dynamically tagged vs statically typed calculi.
+  In dynamically typed version these objects don't seem to bring anything new, they could be simulated by a closure that
+  takes in the message as input, then simulates `receive` by pattern matching on the input.
+  When we have static types, the messages of objects are not like usual data. Which message is sent when should be derivable at static time!
+  This is like a limited version of dependent function types, where the domain of the family (bundle/fibration) is just a very finite,
+  statically known set. With this, we actually gain more expressive power than just with pattern matching - where without dependent types,
+  each branch has to have the same type.
+
