@@ -359,6 +359,7 @@ impl Pattern {
 pub enum Value {
     Int(i32),
     Tagged(Tag, Box<Value>), // It's interesting that I don't have to do Rc here.
+                             // TODO: Well, you're cloning values, so 
     Tuple(Vec<Value>), // Would be cool if we could use Box<[Value]>, since we don't need to resize
                            // tuples at runtime.
                            // But it seems you can create an array of only statically known size.

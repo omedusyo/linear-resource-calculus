@@ -81,6 +81,8 @@ pub enum Expression0 {
 }
 
 // TODO: Can you refine this into a dependent version of bindings?
+// Note that these bindings contain expressions, not values.
+// This is purely for the move into object syntax.
 #[derive(Debug, Clone)]
 pub struct Bindings(Box<Bindings0>);
 
@@ -102,6 +104,8 @@ pub struct TuplePatternBranch {
     pub body: Expression,
 }
 
+// match v { x => ... }  // Should be valid right? This is basically a let-expression equivalent.
+// match v { #foo x => ... | #bar y => ... } // Should also be valid. But we should assume that the
 #[derive(Debug, Clone)]
 pub enum Pattern {
     Variable(VariableName),
@@ -191,6 +195,16 @@ pub enum Error {
     FunctionCallArityMismatch { fn_name: FunctionName, expected: usize, received: usize },
     VariableLookupFailure(VariableName),
     UnableToFindMatchingPattern,
+    InvalidPatternMatch(PatternMatchErrror),
+}
+
+#[derive(Debug, PartialEq)]
+pub enum PatternMatchErrror {
+    TaggedValueFedToNonTaggedPattern,
+    TupleFedToNonTuplePattern,
+    TupleSizesDidNotMatch,
+    TupleMatchedAgainstMatchExpressionWithMultipleBranches,
+    AttemptToMatchNonInductiveValue,
 }
 
 // ===Evaluation===
@@ -326,44 +340,47 @@ impl TuplePatternBranches {
     }
 }
 
-// Assumes that in each branch the number of patterns per tuple is the same as the
-// number of values
-fn apply_msg_to_tuple_branches(program: Program, env: Env, mut branches: Vec<TuplePatternBranch>, values: Vec<Value>) -> Result<(Program, Env, Value), Error> {
-    let mut filtered_branches: Vec<TuplePatternBranch> = vec![];
-    let mut deeper_values: Vec<Value> = vec![];
-    for (i, val) in values.into_iter().enumerate() {
-        match val {
-            Value::Tagged(tag0, val) => {
-                deeper_values.push(*val);
-                for TuplePatternBranch { patterns, body } in &mut branches {
-                    // TODO: Oh no, I will have to tranpose the TuplePatternBranch
-                    // match &mut patterns[i] {
-                    //     Pattern::Tagged(tag, pattern) => {
-                    //         if tag == tag0 {
-                    //             // patterns[i] = **pattern;
-                    //         }
-                    //     },
-                    //     _ => {},
-                    // }
-                }
-                todo!()
+// TODO: There should be some syntactic check
+//       that makes sure that `match` expressions are either
+//          a single match-all
+//       or a bunch of pattertns that query the tag
+//       or a single tuple pattern.
+//
+//
+// Should we allow the following?
+// match (v1, v2) {
+// | (#A, #A) . ...
+// | (#A, #B) . ...
+// | (#B, #A) . ...
+// | (#B, #B) . ...
+// }
+// Right now we won't.
+// Instead do the following
+// match (v1, v2) {
+// | (x, y) . match x {
+//   | #A . match y {
+//     | #A . ...
+//     | #B . ...
+//     }
+//   | #B . match x {
+//     | #A . ...
+//     | #B . ...
+//     }
+//   }
+// }
+fn apply_msg_to_branches(program: Program, env: Env, branches: Vec<PatternBranch>, val: Value) -> Result<(Program, Env, Value), Error> {
+    if branches.len() == 0 { return Err(Error::UnableToFindMatchingPattern) }
+    if branches.len() == 1 && matches!(branches[0].pattern, Pattern::Variable(_)) { // non-destructive read
+        // Can't just do branches[0]... that has ownership problems for some reason.
+        let PatternBranch { pattern, body } =  branches.into_iter().next().unwrap();
+        match pattern {
+            Pattern::Variable(var) => {
+                let env = env.extend(var, val);
+                return eval(program, env, body)
             },
-            Value::Tuple(values) => {
-                todo!()
-            },
-            val => {
-                todo!()
-            },
+            _ => unreachable!(),
         }
     }
-    if filtered_branches.len() == 0 {
-        apply_msg_to_tuple_branches(program, env, filtered_branches, deeper_values)
-    } else {
-        todo!()
-    }
-}
-
-fn apply_msg_to_branches(program: Program, env: Env, branches: Vec<PatternBranch>, val: Value) -> Result<(Program, Env, Value), Error> {
     match val {
         Value::Tagged(tag0, val) => {
             let mut filtered_branches: Vec<PatternBranch> = vec![];
@@ -374,48 +391,43 @@ fn apply_msg_to_branches(program: Program, env: Env, branches: Vec<PatternBranch
                             filtered_branches.push(PatternBranch { pattern: *pattern, body });
                         }
                     },
-                    _ => {}
+                    _ => return Err(Error::InvalidPatternMatch(PatternMatchErrror::TaggedValueFedToNonTaggedPattern))
                 }
             }
-            if filtered_branches.len() == 0 {
-                return Err(Error::UnableToFindMatchingPattern)
-            } else {
-                apply_msg_to_branches(program, env, filtered_branches, *val)
-            }
+            apply_msg_to_branches(program, env, filtered_branches, *val)
         },
         Value::Tuple(values) => {
-            // TODO: branches.len() is wrong... I need to filtered count...
-            let mut filtered_foo = TuplePatternBranches::new(branches.len(), values.len());
-            let mut filtered_branches: Vec<TuplePatternBranch> = vec![];
-            for PatternBranch { pattern, body } in branches {
+            // We require in this case that we have exactly one branch that destructures the tuple,
+            // and that the patterns are match-all variables
+            if branches.len() == 1 {
+                let PatternBranch { pattern, body } =  branches.into_iter().next().unwrap();
                 match pattern {
                     Pattern::Tuple(patterns) => {
-                        if patterns.len() == values.len() {
-                            filtered_branches.push(TuplePatternBranch { patterns, body })
+                        if patterns.len() != values.len() {
+                            return Err(Error::InvalidPatternMatch(PatternMatchErrror::TupleSizesDidNotMatch))
                         }
-                    },
-                    _ => {}
-                }
-            }
-            if filtered_branches.len() == 0 {
-                return Err(Error::UnableToFindMatchingPattern)
-            } else {
-                // Construct a proper transposed TuplePatternBranches object
-                apply_msg_to_tuple_branches(program, env, filtered_branches, values)
-            }
-        },
-        val => {
-            // The only pattern that could match this is MatchAll (i.e. a variable)
-            for PatternBranch { pattern, body } in branches {
-                match pattern {
-                    Pattern::Variable(var) => {
-                        let env = env.extend(var, val);
+                        let mut env = env;
+                        for (pattern, val) in patterns.into_iter().zip(values) {
+                            match pattern {
+                                Pattern::Variable(var) => {
+                                    env = env.extend(var, val);
+                                },
+                                _ => return Err(Error::InvalidPatternMatch(PatternMatchErrror::TupleFedToNonTuplePattern))
+                            }
+                        }
                         return eval(program, env, body)
                     },
-                    _ => {}
+                    _ => return Err(Error::InvalidPatternMatch(PatternMatchErrror::TupleFedToNonTuplePattern))
                 }
+            } else {
+                return Err(Error::InvalidPatternMatch(PatternMatchErrror::TupleMatchedAgainstMatchExpressionWithMultipleBranches))
             }
-            Err(Error::UnableToFindMatchingPattern)
+        },
+        _ => {
+            // The only pattern that could match this is MatchAll (i.e. a variable).
+            // In which case we would have already matched this. This means that we have an error
+            // here, e.g. someone fed an object into a match case that's not a match-all.
+            return Err(Error::InvalidPatternMatch(PatternMatchErrror::AttemptToMatchNonInductiveValue))
         },
     }
 }

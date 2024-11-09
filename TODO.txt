@@ -4,7 +4,12 @@
 * in cartesian lambda calculus for Vlaue::ClosureObject { captured_env: Env, branches: Rc<Vec<PatternBranch>> },
   do you really need the Rc<_>?
 
+* For linear case, try to figure out if you even need environments.
+  Feels like substitution would work just fine in this case...
+  Oh wait, for objects that capture stuff you would basically still need something
+  like an environment.
 
 * example programs:
   - cartesian/linear lambda calc interpreters
   - suspendable/resumable parser objects (e.g. for when you get a stream of tokens from user, and you don't get all of the input at once)
+

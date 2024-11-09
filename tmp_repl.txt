@@ -92,6 +92,8 @@ range-iter(5, 0)
 
 map(obj { x . *($x, $x) }, range-iter(5, 0))
 
+range-iter(5, 0)
+
 
 obj { #force () . 123 }
 
@@ -101,7 +103,8 @@ send(obj { #force () . 123 }, #force ())
 
 send(send(send(nats(0), #tl ()), #tl ()), #hd ())
 
-nats(0) @ #tl() @ #tl() @ #tl() @ #hd()
+// This is syntax that doesn't really exist at the moment.
+// nats(0) @ #tl() @ #tl() @ #tl() @ #hd()
 
 nats(0)
 
@@ -159,5 +162,3 @@ square(5)
 range-iter(5, 0)
 
 :def fn f(x) { $x }
-
-
