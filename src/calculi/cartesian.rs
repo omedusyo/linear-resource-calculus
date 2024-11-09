@@ -413,14 +413,8 @@ impl fmt::Display for Value {
                 }
                 write!(f, ")")
             },
-            ClosureObject { ..  } => write!(f, "@{{...}}"),
+            ClosureObject { ..  } => write!(f, "obj {{...}}"),
         }
-    }
-}
-
-impl fmt::Display for Tag {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "#{}", self.0)
     }
 }
 

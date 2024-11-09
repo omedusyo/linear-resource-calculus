@@ -160,6 +160,12 @@ pub fn parse_expression(input: TokenStream) -> IResult0<Expression> {
             let (input, arg) = parse_expression(input)?;
             Ok((input, Expression::tagged(Tag::new(tag), arg)))
         },
+        OpenBracket => {
+            // tuple
+            let (input, args) = expression_vector(input)?;
+            let (input, _) = token(TokenType::CloseBracket)(input)?;
+            Ok((input, Expression::tuple(args)))
+        },
         OpenParen => {
             todo!("Unexpected `(` in linear calculus.")
         },
@@ -226,7 +232,7 @@ pub fn parse_expression(input: TokenStream) -> IResult0<Expression> {
 }
 
 // ===Program===
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Program {
     pub function_definitions: HashMap<FunctionName, FunctionDefinition>,
     pub function_definitions_ordering: Vec<FunctionName>,
@@ -355,6 +361,29 @@ pub enum Value {
     Tagged(Tag, Box<Value>),
     Tuple(Vec<Value>), // Would be cool if we could use Box<[Value]>, since we don't need to resize
     ClosureObject { captured_env: Env, branches: Vec<PatternBranch> },
+}
+
+impl fmt::Display for Value {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use Value::*;
+        match self {
+            Int(x) => write!(f, "{}", x),
+            Tagged(tag, val) => write!(f, "{} {}", tag, val),
+            Tuple(values) => {
+                write!(f, "[")?;
+                let mut values = (&**values).iter().peekable();
+                while let Some(val) = values.next() {
+                    match values.peek() {
+                        Some(_) => write!(f, "{}, ", val)?,
+                        None => write!(f, "{}", val)?,
+                    }
+                }
+                write!(f, "]")
+            },
+            // TODO: Perhaps show captured resources?
+            ClosureObject { ..  } => write!(f, "obj {{...}}"),
+        }
+    }
 }
 
 // ===Environment===

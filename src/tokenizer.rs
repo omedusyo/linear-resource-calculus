@@ -75,14 +75,14 @@ impl Token {
 
 fn is_forbiden_char(c: char) -> bool {
     match c {
-        '(' | ')' | '{' | '}' | '.' | ',' | '|' | '$' | '%' | '#' | ' ' | '\t' | '\r' | '\n' => true,
+        '(' | ')' | '[' | ']'| '{' | '}' | '.' | ',' | '|' | '$' | '%' | '#' | ' ' | '\t' | '\r' | '\n' => true,
         _ => false,
     }
 }
 
 pub fn parse_identifier(input: &str) -> IResult<&str, String> {
     // Identifier can't start with a char in "(){},.|%$#-012345689=".
-    // Afterwards we have a sequence of any chars except those contained in "(){},.|$#" or
+    // Afterwards we have a sequence of any chars except those contained in "()[]{},.|$#" or
     // whitespace.
     // We also allow the identifier to start with double equals e.g. "==" or "==foo"
     // VALID: "foo", "bar123", "_123", "_-_-_", "<=", "+", "*", "%", "foo!", "bar?",
@@ -123,6 +123,16 @@ pub fn parse_token(input: &str) -> IResult<&str, Token> {
             let (input, _) = anychar(input)?;
             let (input, _) = multispace0(input)?;
             Ok((input, Token::CloseParen))
+        },
+        '[' => {
+            let (input, _) = anychar(input)?;
+            let (input, _) = multispace0(input)?;
+            Ok((input, Token::OpenBracket))
+        },
+        ']' => {
+            let (input, _) = anychar(input)?;
+            let (input, _) = multispace0(input)?;
+            Ok((input, Token::CloseBracket))
         },
         '{' => {
             let (input, _) = anychar(input)?;

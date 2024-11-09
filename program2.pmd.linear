@@ -17,33 +17,36 @@ fn discard_bool[b] { match %b {
 }}
 
 fn dup_nat[n] { match %n {
-| #zero[] . [#zero[], #zero[]]
+  #zero[] . [#zero[], #zero[]]
 | #succ n . match dup_nat[%n] {
-  | [n0, n1] . [#succ %n0, #succ %n1]
+    [n0, n1] . [#succ %n0, #succ %n1]
   }
 }}
 
 fn discard_nat[n] { match %n {
-| #zero [] . []
+  #zero [] . []
 | #succ n . discard_nat[%n]
 }}
 
 fn append[xs, ys] { match %xs {
-| #nil [] . %ys
+  #nil [] . %ys
 | #cons [x, xs] . #cons [%x, append[%xs, %ys]]
 }}
 
 fn reverse-loop[xs, state] { match %xs {
-| #nil [] . %state
+  #nil [] . %state
 | #cons [x, xs] . reverse-loop[%xs, #cons [%x, %state]]
 }}
 
-fn nats[n] { move n = %n obj {
+fn nats[n] { obj { n = %n .
   #hd [] . %n
 | #tl [] . nats[+[%n, 1]]
 }}
 
-fn example_tuple[] {
-  move obj {  }
+fn example_tuple_0[] {
+  obj {. #fst[] . 123 | #snd[] . 512 }
 }
 
+fn example_tuple_1[] {
+  obj { n = 123 . #fst[] . %n | #snd[] . +[%n, 100] }
+}
