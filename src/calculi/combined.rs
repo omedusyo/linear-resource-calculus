@@ -180,42 +180,6 @@ pub enum Pattern {
     Tuple(Vec<Pattern>),
 }
 
-type CartesianPatternMatchResult = Option<Vec<(VariableName, CartesianValue)>>;
-
-impl Pattern {
-    fn match_(&self, val: &CartesianValue) -> CartesianPatternMatchResult {
-        fn loop_(pattern: &Pattern, val: &CartesianValue, mut bindings: Vec<(VariableName, CartesianValue)>) -> CartesianPatternMatchResult {
-            use Pattern::*;
-            match (pattern, val) {
-                (Variable(var), val) => {
-                    bindings.push((var.clone(), val.clone()));
-                    Some(bindings)
-                },
-                (Tagged(tag0, pattern), CartesianValue::Tagged(tag1, val)) => {
-                    if tag0 == tag1 {
-                        loop_(pattern, val, bindings)
-                    } else {
-                        None
-                    }
-                },
-                (Tuple(patterns), CartesianValue::Tuple(values)) => {
-                    if patterns.len() == values.len() {
-                        for (i, val) in values.into_iter().enumerate() {
-                            bindings = loop_(&patterns[i], val, bindings)?
-                        }
-                        Some(bindings)
-                    } else {
-                        None
-                    }
-                },
-                _ => None
-            }
-        }
-
-        loop_(self, val, vec![])
-    }
-}
-
 // ===Values===
 
 #[derive(Debug)]
@@ -613,6 +577,43 @@ fn linear_apply_function(program: &Program, fn_def: LinearFunctionDefinition, ca
 
 // ===Send Message===
 // ==Cartesian==
+type CartesianPatternMatchResult = Option<Vec<(VariableName, CartesianValue)>>;
+
+// TODO: Move this into the message  sending function.
+impl Pattern {
+    fn match_(&self, val: &CartesianValue) -> CartesianPatternMatchResult {
+        fn loop_(pattern: &Pattern, val: &CartesianValue, mut bindings: Vec<(VariableName, CartesianValue)>) -> CartesianPatternMatchResult {
+            use Pattern::*;
+            match (pattern, val) {
+                (Variable(var), val) => {
+                    bindings.push((var.clone(), val.clone()));
+                    Some(bindings)
+                },
+                (Tagged(tag0, pattern), CartesianValue::Tagged(tag1, val)) => {
+                    if tag0 == tag1 {
+                        loop_(pattern, val, bindings)
+                    } else {
+                        None
+                    }
+                },
+                (Tuple(patterns), CartesianValue::Tuple(values)) => {
+                    if patterns.len() == values.len() {
+                        for (i, val) in values.into_iter().enumerate() {
+                            bindings = loop_(&patterns[i], val, bindings)?
+                        }
+                        Some(bindings)
+                    } else {
+                        None
+                    }
+                },
+                _ => None
+            }
+        }
+
+        loop_(self, val, vec![])
+    }
+}
+
 fn cartesian_apply_msg_to_branches(program: &Program, env: &CartesianEnv, branches: &[CartesianPatternBranch], val: &CartesianValue) -> Result<CartesianValue, Error> {
     for branch in branches {
         match branch.pattern.match_(val) {
