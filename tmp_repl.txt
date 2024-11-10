@@ -227,3 +227,8 @@ dup[#cons[5, #nil[]]]
 
 
 send[fib[3, 5], #next[]]
+
+# ====Combined====
+
+cargo build
+
