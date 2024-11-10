@@ -366,6 +366,10 @@ pub fn parse_linear_expression(input: TokenStream) -> IResult0<LinearExpression>
             let (input, var_name) = anyidentifier(input)?;
             Ok((input, LinearExpression::var_use(VariableName::new(var_name))))
         },
+        VarLookupSymbol => {
+            let (input, var_name) = anyidentifier(input)?;
+            Ok((input, LinearExpression::var_lookup(VariableName::new(var_name))))
+        },
         TagSymbol => {
             let (input, tag) = anyidentifier(input)?;
             let (input, arg) = parse_linear_expression(input)?;
@@ -393,8 +397,18 @@ pub fn parse_linear_expression(input: TokenStream) -> IResult0<LinearExpression>
 
                     Ok((input, LinearExpression::let_(arg, var_name, body)))
                 },
-                // TODO: You need some sort-of let-cart also
-                "let-cart" => todo!(),
+                "let-cart" => { // TODO: This syntax is a bit inconsistent... it should be atleast `let cart`
+                    // let-cart { x = 5 . body }
+                    let (input, _) = token(TokenType::OpenCurly)(input)?;
+                    let (input, (var_name, arg)) = parse_cartesian_var_binding(input)?;
+
+                    let (input, _) = token(TokenType::BindingSeparator)(input)?;
+
+                    let (input, body) = parse_linear_expression(input)?;
+                    let (input, _) = token(TokenType::CloseCurly)(input)?;
+
+                    Ok((input, LinearExpression::let_cartesean(arg, var_name, body)))
+                },
                 "match" => {
                     let (input, arg) = parse_linear_expression(input)?;
                     let (input, _) = token(TokenType::OpenCurly)(input)?;
@@ -624,8 +638,11 @@ pub enum LinearExpression0 {
     Tagged(Tag, LinearExpression),
     Tuple(Vec<LinearExpression>),
     Match { arg: LinearExpression, branches: Vec<LinearPatternBranch> },
+    VarLookup(VariableName), // TODO: This is very suspicious. It makes sense dynamically, but what
+                             // does it mean on type level? Each cartesian value must also be a linear value.
     VarUse(VariableName),
     Let { arg: LinearExpression, var: VariableName, body: LinearExpression },
+    LetCartesian { cartesian_arg: CartesianExpression, var: VariableName, body: LinearExpression },
     Object { captured_bindings: LinearBindings, branches: Vec<LinearPatternBranch> },
     Send(LinearExpression, LinearExpression),
 
@@ -650,7 +667,9 @@ impl LinearExpression {
     fn tuple(args: Vec<LinearExpression>) -> Self { Self(Box::new(LinearExpression0::Tuple(args))) }
     fn match_(arg: Self, branches: Vec<LinearPatternBranch>) -> Self { Self(Box::new(LinearExpression0::Match { arg, branches })) }
     fn var_use(var: VariableName) -> Self { Self(Box::new(LinearExpression0::VarUse(var))) }
+    fn var_lookup(var: VariableName) -> Self { Self(Box::new(LinearExpression0::VarLookup(var))) }
     fn let_(arg: Self, var: VariableName, body: Self) -> Self { Self(Box::new(LinearExpression0::Let { arg, var, body })) }
+    fn let_cartesean(arg: CartesianExpression, var: VariableName, body: Self) -> Self { Self(Box::new(LinearExpression0::LetCartesian { cartesian_arg: arg, var, body })) }
     fn object(moved_env: LinearBindings, branches: Vec<LinearPatternBranch>) -> Self { Self(Box::new(LinearExpression0::Object { captured_bindings: moved_env, branches })) }
     fn send(obj: Self, msg: Self) -> Self { Self(Box::new(LinearExpression0::Send(obj, msg))) }
     fn force(obj: CartesianExpression) -> Self { Self(Box::new(LinearExpression0::Force(obj))) }
@@ -702,6 +721,8 @@ pub enum LinearValue {
     Tagged(Tag, Box<LinearValue>),
     Tuple(Vec<LinearValue>), // Would be cool if we could use Box<[Value]>, since we don't need to resize
     ClosureObject { captured_env: LinearEnv, branches: Vec<LinearPatternBranch> },
+
+    Cartesian(CartesianValue),
 }
 
 impl LinearValue {
@@ -716,6 +737,7 @@ impl LinearValue {
                 }
             },
             ClosureObject { .. } => todo!(), // this should crash
+            Cartesian(cart_val) => (), // Interesting. We don't have to do anything.
         }
     }
 
@@ -738,6 +760,8 @@ impl LinearValue {
                 (Tuple(values0), Tuple(values1))
             },
             ClosureObject { .. } => todo!(), // this should crash
+            // Note that the clone here is very cheap.
+            Cartesian(cart_val) => (Cartesian(cart_val.clone()), Cartesian(cart_val)) 
         }
     }
 }
@@ -794,6 +818,7 @@ impl fmt::Display for LinearValue {
             },
             // TODO: Perhaps show captured resources?
             ClosureObject { ..  } => write!(f, "obj {{...}}"),
+            Cartesian(cart_val) => write!(f, "cart({})", cart_val)
         }
     }
 }
@@ -1077,6 +1102,10 @@ fn linear_eval(program: &Program, cartesian_env: &CartesianEnv, env: LinearEnv, 
             let (value, env) = env.use_(var_name)?;
             Ok((env, value))
         },
+        VarLookup(var_name) => {
+            let cartesian_value = cartesian_env.get(var_name)?;
+            Ok((env, LinearValue::Cartesian(cartesian_value)))
+        },
         Match { arg, branches } => {
             let (env, arg_value) = linear_eval(program, cartesian_env, env, arg)?;
             linear_apply_msg_to_branches(program, cartesian_env, env, branches, arg_value)
@@ -1085,6 +1114,11 @@ fn linear_eval(program: &Program, cartesian_env: &CartesianEnv, env: LinearEnv, 
             let (env, arg_value) = linear_eval(program, cartesian_env, env, arg)?;
             let env = env.extend(var, arg_value);
             linear_eval(program, cartesian_env, env, body)
+        },
+        LetCartesian { cartesian_arg, var, body } => {
+            let arg_cartesian_value = cartesian_eval(program, cartesian_env, &cartesian_arg)?;
+            let cartesian_env = cartesian_env.clone().extend(var.clone(), arg_cartesian_value);
+            linear_eval(program, &cartesian_env, env, body)
         },
         Object { captured_bindings, branches } => {
             let (env, captured_env) = linear_eval_bindings(program, cartesian_env, env, captured_bindings)?;

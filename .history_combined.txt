@@ -12,3 +12,4 @@ cart id(123)
 fn lin id()[a] { %a }
 cart pyth(3, 4)
 lin dup[3]
+cart let { x = thunk { +[123, 5] } . ($x, $x) }
