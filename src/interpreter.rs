@@ -1,5 +1,6 @@
 use crate::calculi::cartesian;
 use crate::calculi::linear;
+use crate::calculi::combined;
 use crate::tokenizer::TokenStream;
 
 pub trait Interpreter {
@@ -29,6 +30,10 @@ pub struct LinearInterpreter {
     program: Option<linear::Program>,
 }
 
+pub struct CombinedInterpreter {
+    program: combined::Program,
+}
+
 impl CartesianInterpreter {
     pub fn new() -> Self {
         Self { program: cartesian::Program::new() }
@@ -41,6 +46,13 @@ impl LinearInterpreter {
     }
 }
 
+impl CombinedInterpreter {
+    pub fn new() -> Self {
+        Self { program: combined::Program::new() }
+    }
+}
+
+// ===Cartesian===
 impl Interpreter for CartesianInterpreter {
     type Expression = cartesian::Expression;
     type Value = cartesian::Value;
@@ -107,6 +119,8 @@ impl Interpreter for CartesianInterpreter {
         fn_names
     }
 }
+
+// ===Linear===
 
 impl Interpreter for LinearInterpreter {
     type Expression = linear::Expression;
@@ -194,6 +208,80 @@ impl Interpreter for LinearInterpreter {
             fn_names.push(format!("{}", fn_name.str()));
         }
         self.program = Some(program);
+        fn_names
+    }
+}
+
+// ===Combined===
+impl Interpreter for CombinedInterpreter {
+    type Expression = combined::Expression;
+    type Value = combined::Value;
+    type ParseError = String;
+    type RuntimeError = combined::Error;
+
+    fn parse_expression(&self, input: &str) -> Result<Self::Expression, Self::ParseError> {
+        match combined::parse_expression(TokenStream::new(input)) {
+            Ok((input, expr)) => if input.input.is_empty() {
+                    Ok(expr)
+                } else {
+                    let err = nom::Err::Error(nom::error::Error { input: input.input, code: nom::error::ErrorKind::NonEmpty });
+                    Err(format!("{:?}", err))
+                }
+            ,
+            Err(err) => Err(format!("{:?}", err)),
+        }
+    }
+    fn eval_expression(&mut self, expr: Self::Expression) -> Result<Self::Value, Self::RuntimeError> {
+        combined::eval_start(&self.program, expr)
+    }
+
+    fn show_parse_error(&self, err: Self::ParseError) -> String { err }
+
+    fn show(&self, eval_result: Result<Self::Value, Self::RuntimeError>) -> String {
+        match eval_result {
+            Ok(val) => format!("{}", val) ,
+            Err(err) => format!("{:?}", err),
+        }
+    }
+
+    fn load_definition(&mut self, input: &str) -> Result<(), Self::ParseError> {
+        match combined::parse_function_definition(TokenStream::new(input)) {
+            Ok((input, fn_def)) => if input.input.is_empty() {
+                self.program.update_function_definition(fn_def);
+                Ok(())
+            } else {
+                let err = nom::Err::Error(nom::error::Error { input: input.input, code: nom::error::ErrorKind::NonEmpty });
+                Err(format!("{:?}", err))
+            },
+            Err(err) => Err(format!("{:?}", err)),
+        }
+    }
+
+    fn load_program(&mut self, input: &str) -> Result<(), Self::ParseError> {
+        match combined::parse_program(TokenStream::new(input)) {
+            Ok((input, program)) => {
+                if input.input.is_empty() {
+                    self.program = program;
+                    Ok(())
+                } else {
+                    Err(format!("Failed to parse the whole file. Remaining input: \n{}", input.input))
+                }
+            },
+            Err(err) => Err(format!("{:?}", err)),
+        }
+    }
+
+    fn list_functions(&mut self) -> Vec<String> {
+        // This definitely sucks. There are two kinds of functions, and this is ill equipped with
+        // communicating such distinction.
+        let mut fn_names = Vec::with_capacity(self.program.function_definitions_ordering.len());
+        for (mode, fn_name) in &self.program.function_definitions_ordering {
+            let mode_str = match mode {
+                combined::Mode::Cartesian => "cart",
+                combined::Mode::Linear => "lin",
+            };
+            fn_names.push(format!("{} {}", mode_str, fn_name.str()));
+        }
         fn_names
     }
 }

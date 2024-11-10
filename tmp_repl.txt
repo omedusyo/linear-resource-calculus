@@ -230,5 +230,44 @@ send[fib[3, 5], #next[]]
 
 # ====Combined====
 
+cargo run repl combined
+
+lin 123
+
+lin +[1,2]
+
+lin +[*[3, 4], 1]
+
+cart +(*(3, 4), 1)
+
+cart #foo()
+
+lin #foo[]
+
+cart let { a = 123 . +($a, 1) }
+
+lin let { a = 123 . +[%a, 1] }
+
+
+cart let { x = thunk { 123 } . $x }
+
+cart let { x = thunk { +[123, 5] } . ($x, $x) }
+
+lin force[let { x = thunk { +[123, 5] } . $x }]
+
+cargo run repl combined
+
+:load program3.pmd.combined
+
+:list fn
+
+:r
+
+cart pyth(3, 4)
+
+lin dup[3]
+
+
 cargo build
+
 

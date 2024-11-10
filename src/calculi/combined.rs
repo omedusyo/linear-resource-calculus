@@ -5,12 +5,462 @@ use crate::identifier::{VariableName, FunctionName, Tag, variable_name};
 use crate::IResult0;
 use std::collections::HashMap;
 
+#[derive(Debug, Clone, Copy)]
+pub enum Mode {
+    Cartesian,
+    Linear,
+}
+
 // ===parser===
+// ==helpers==
+// No parens, just a possibly empty comma separated list of identifiers.
+fn parameter_vector(input: TokenStream) -> IResult0<Vec<VariableName>> {
+    // TODO: Check uniqueness.
+    delimited_vector(variable_name, token(TokenType::Comma))(input)
+}
+
+// ==Concrete parsers==
+fn identifier_to_operation_code(str: &str) -> Option<OperationCode> {
+    match str {
+        "+" => Some(OperationCode::Add),
+        "*" => Some(OperationCode::Mul),
+        "sub" => Some(OperationCode::Sub),
+        "==" => Some(OperationCode::Eq),
+        "dup" => Some(OperationCode::Duplicate),
+        "discard" => Some(OperationCode::Discard),
+        _ => None
+    }
+}
+
+fn parse_mode_keyword(input: TokenStream) -> IResult0<Mode> {
+    let (input, mode_str) = anyidentifier(input)?;
+    match &mode_str[..] {
+        "cart" => Ok((input, Mode::Cartesian)),
+        "lin" => Ok((input, Mode::Linear)),
+        _ => return Err(nom::Err::Error(nom::error::Error { input: input.input, code: nom::error::ErrorKind::Alt }))
+    }
+}
+
+fn parse_cartesian_operator_arguments(op_code: OperationCode, input: TokenStream) -> IResult0<CartesianExpression> {
+    use OperationCode::*;
+    match op_code {
+        Add => {
+            let (input, (e0, e1)) = parse_cartesian_arg_list2(input)?;
+            Ok((input, CartesianExpression::operation_application(op_code, e0, e1)))
+        },
+        Sub => {
+            let (input, (e0, e1)) = parse_cartesian_arg_list2(input)?;
+            Ok((input, CartesianExpression::operation_application(op_code, e0, e1)))
+        },
+        Mul => {
+            let (input, (e0, e1)) = parse_cartesian_arg_list2(input)?;
+            Ok((input, CartesianExpression::operation_application(op_code, e0, e1)))
+        },
+        Eq => {
+            let (input, (e0, e1)) = parse_cartesian_arg_list2(input)?;
+            Ok((input, CartesianExpression::operation_application(op_code, e0, e1)))
+        },
+        Discard | Duplicate => todo!(),
+    }
+}
+fn parse_linear_operator_arguments(op_code: OperationCode, input: TokenStream) -> IResult0<LinearExpression> {
+    use OperationCode::*;
+    match op_code {
+        Add => {
+            let (input, (e0, e1)) = parse_linear_arg_list2(input)?;
+            Ok((input, LinearExpression::operation_application2(op_code, e0, e1)))
+        },
+        Sub => {
+            let (input, (e0, e1)) = parse_linear_arg_list2(input)?;
+            Ok((input, LinearExpression::operation_application2(op_code, e0, e1)))
+        },
+        Mul => {
+            let (input, (e0, e1)) = parse_linear_arg_list2(input)?;
+            Ok((input, LinearExpression::operation_application2(op_code, e0, e1)))
+        },
+        Eq => {
+            let (input, (e0, e1)) = parse_linear_arg_list2(input)?;
+            Ok((input, LinearExpression::operation_application2(op_code, e0, e1)))
+        },
+        Duplicate => {
+            let (input, e0) = parse_linear_arg_list1(input)?;
+            Ok((input, LinearExpression::operation_application1(op_code, e0)))
+        },
+        Discard => {
+            let (input, e0) = parse_linear_arg_list1(input)?;
+            Ok((input, LinearExpression::operation_application1(op_code, e0)))
+        },
+    }
+}
+
+fn parse_linear_arg_list1(input: TokenStream) -> IResult0<LinearExpression> {
+    // "[e0]  "
+    let (input, _) = token(TokenType::OpenBracket)(input)?;
+    let (input, e0) = parse_linear_expression(input)?;
+    let (input, _) = token(TokenType::CloseBracket)(input)?;
+    Ok((input, e0))
+}
+fn parse_cartesian_arg_list2(input: TokenStream) -> IResult0<(CartesianExpression, CartesianExpression)> {
+    // "(e0, e1)  "
+    let (input, _) = token(TokenType::OpenParen)(input)?;
+    let (input, e0) = parse_cartesian_expression(input)?;
+    let (input, _) = token(TokenType::Comma)(input)?;
+    let (input, e1) = parse_cartesian_expression(input)?;
+    let (input, _) = token(TokenType::CloseParen)(input)?;
+    Ok((input, (e0, e1)))
+}
+fn parse_linear_arg_list2(input: TokenStream) -> IResult0<(LinearExpression, LinearExpression)> {
+    // "[e0, e1]  "
+    let (input, _) = token(TokenType::OpenBracket)(input)?;
+    let (input, e0) = parse_linear_expression(input)?;
+    let (input, _) = token(TokenType::Comma)(input)?;
+    let (input, e1) = parse_linear_expression(input)?;
+    let (input, _) = token(TokenType::CloseBracket)(input)?;
+    Ok((input, (e0, e1)))
+}
+
+pub fn parse_program(input: TokenStream) -> IResult0<Program> {
+    let (input, definitions) = vector(parse_function_definition)(input)?;
+    let mut program = Program::new();
+    for definition in definitions {
+        let name = definition.name().clone();
+        use FunctionDefinition::*;
+        match definition {
+            Cartesian(definition) => {
+                program.cartesian_function_definitions.insert(name.clone(), definition);
+                program.function_definitions_ordering.push((Mode::Cartesian, name));
+            },
+            Linear(definition) => {
+                program.linear_function_definitions.insert(name.clone(), definition);
+                program.function_definitions_ordering.push((Mode::Linear, name));
+            },
+        }
+    }
+    Ok((input, program))
+}
+
+pub fn parse_function_definition(input: TokenStream) -> IResult0<FunctionDefinition> {
+    let (input, _) = identifier("fn")(input)?;
+    let (input, mode) = parse_mode_keyword(input)?;
+    let (input, function_name_str) = anyidentifier(input)?;
+    match mode {
+        Mode::Cartesian => {
+            let (input, _) = token(TokenType::OpenParen)(input)?;
+            let (input, cartesian_parameters) = parameter_vector(input)?;
+            let (input, _) = token(TokenType::CloseParen)(input)?;
+
+            let (input, _) = token(TokenType::OpenCurly)(input)?;
+            let (input, body) = parse_cartesian_expression(input)?;
+            let (input, _) = token(TokenType::CloseCurly)(input)?;
+            Ok((input, FunctionDefinition::Cartesian(CartesianFunctionDefinition { name: FunctionName::new(function_name_str), cartesian_parameters, body })))
+        },
+        Mode::Linear => {
+            let (input, _) = token(TokenType::OpenParen)(input)?;
+            let (input, cartesian_parameters) = parameter_vector(input)?;
+            let (input, _) = token(TokenType::CloseParen)(input)?;
+
+            let (input, _) = token(TokenType::OpenBracket)(input)?;
+            let (input, linear_parameters) = parameter_vector(input)?;
+            let (input, _) = token(TokenType::CloseBracket)(input)?;
+
+            let (input, _) = token(TokenType::OpenCurly)(input)?;
+            let (input, body) = parse_linear_expression(input)?;
+            let (input, _) = token(TokenType::CloseCurly)(input)?;
+            Ok((input, FunctionDefinition::Linear(LinearFunctionDefinition { name: FunctionName::new(function_name_str), cartesian_parameters, linear_parameters, body })))
+        },
+    }
+}
+
+
+fn cartesian_expression_vector(input: TokenStream) -> IResult0<Vec<CartesianExpression>> {
+    delimited_vector(parse_cartesian_expression, token(TokenType::Comma))(input)
+}
+fn linear_expression_vector(input: TokenStream) -> IResult0<Vec<LinearExpression>> {
+    delimited_vector(parse_linear_expression, token(TokenType::Comma))(input)
+}
+
+
+// x = e0
+pub fn parse_cartesian_var_binding(input: TokenStream) -> IResult0<(VariableName, CartesianExpression)> {
+    let (input, identifier) = anyidentifier(input)?;
+    let (input, _) = token(TokenType::Eq)(input)?;
+    let (input, arg) = parse_cartesian_expression(input)?;
+
+    Ok((input, (VariableName::new(identifier), arg)))
+}
+// a = e0
+pub fn parse_linear_var_binding(input: TokenStream) -> IResult0<(VariableName, LinearExpression)> {
+    let (input, identifier) = anyidentifier(input)?;
+    let (input, _) = token(TokenType::Eq)(input)?;
+    let (input, arg) = parse_linear_expression(input)?;
+
+    Ok((input, (VariableName::new(identifier), arg)))
+}
+
+// a = e0, b = e1, c = e2
+pub fn parse_linear_var_bindings(input: TokenStream) -> IResult0<LinearBindings> {
+    let (input, var_expr_pair) = delimited_vector(parse_linear_var_binding, token(TokenType::Comma))(input)?;
+    let mut bindings = LinearBindings0::Empty;
+    for (var, expr) in var_expr_pair {
+        bindings = LinearBindings0::Push { var, expr, parent: LinearBindings(Box::new(bindings)) };
+    }
+    Ok((input, LinearBindings(Box::new(bindings))))
+}
+
+pub fn parse_cartesian_branch(input: TokenStream) -> IResult0<CartesianPatternBranch> {
+    let (input, pattern) = parse_pattern(input)?;
+    let (input, _) = token(TokenType::BindingSeparator)(input)?;
+    let (input, body) = parse_cartesian_expression(input)?;
+
+    Ok((input, CartesianPatternBranch { pattern, body }))
+}
+pub fn parse_linear_branch(input: TokenStream) -> IResult0<LinearPatternBranch> {
+    let (input, pattern) = parse_pattern(input)?;
+    let (input, _) = token(TokenType::BindingSeparator)(input)?;
+    let (input, body) = parse_linear_expression(input)?;
+
+    Ok((input, LinearPatternBranch { pattern, body }))
+}
+
+pub fn parse_cartesian_branches(input: TokenStream) -> IResult0<Vec<CartesianPatternBranch>> {
+    delimited_vector(parse_cartesian_branch, token(TokenType::OrSeparator))(input)
+}
+pub fn parse_linear_branches(input: TokenStream) -> IResult0<Vec<LinearPatternBranch>> {
+    delimited_vector(parse_linear_branch, token(TokenType::OrSeparator))(input)
+}
+
+fn parse_pattern_sequence(input: TokenStream) -> IResult0<Vec<Pattern>> {
+    delimited_vector(parse_pattern, token(TokenType::Comma))(input)
+}
+fn parse_pattern(input: TokenStream) -> IResult0<Pattern> {
+    let (input, token0) = anytoken(input)?;
+    use Token::*;
+    match token0 {
+        TagSymbol => {
+            // Tag pattern
+            let (input, var_name) = anyidentifier(input)?;
+            let (input, pattern) = parse_pattern(input)?;
+            Ok((input, Pattern::Tagged(Tag::new(var_name), Box::new(pattern))))
+        },
+        OpenParen => {
+            // Tuple pattern
+            let (input, patterns) = parse_pattern_sequence(input)?;
+            let (input, _) = token(TokenType::CloseParen)(input)?;
+            Ok((input, Pattern::Tuple(patterns)))
+        },
+        Identifier(var_name) => Ok((input, Pattern::Variable(VariableName::new(var_name)))),
+        _ => Err(nom::Err::Error(nom::error::Error { input: input.input, code: nom::error::ErrorKind::Alt })),
+    }
+}
+
+pub fn parse_expression(input: TokenStream) -> IResult0<Expression> {
+    let (input, mode) = parse_mode_keyword(input)?;
+    match mode {
+        Mode::Cartesian => {
+            let (input, expr) = parse_cartesian_expression(input)?;
+            Ok((input, Expression::Cartesian(expr)))
+        },
+        Mode::Linear => {
+            let (input, expr) = parse_linear_expression(input)?;
+            Ok((input, Expression::Linear(expr)))
+        }
+    }
+}
+
+pub fn parse_cartesian_expression(input: TokenStream) -> IResult0<CartesianExpression> {
+    let (input, token0) = anytoken(input)?;
+    use Token::*;
+    match token0 {
+        Int(x) => Ok((input, CartesianExpression::int(x))),
+        VarLookupSymbol => {
+            let (input, var_name) = anyidentifier(input)?;
+            Ok((input, CartesianExpression::var_lookup(VariableName::new(var_name))))
+        },
+        TagSymbol => {
+            let (input, tag) = anyidentifier(input)?;
+            let (input, arg) = parse_cartesian_expression(input)?;
+            Ok((input, CartesianExpression::tagged(Tag::new(tag), arg)))
+        },
+        OpenParen => {
+            // tuple
+            let (input, args) = cartesian_expression_vector(input)?;
+            let (input, _) = token(TokenType::CloseParen)(input)?;
+            Ok((input, CartesianExpression::tuple(args)))
+        },
+        OpenBracket => {
+            todo!("Unexpected `[` in cartesian mode.")
+        },
+        Identifier(identifier) => {
+            match &identifier[..] {
+                "let" => {
+                    // let { x = 5 . body }
+                    let (input, _) = token(TokenType::OpenCurly)(input)?;
+                    let (input, (var_name, arg)) = parse_cartesian_var_binding(input)?;
+
+                    let (input, _) = token(TokenType::BindingSeparator)(input)?;
+
+                    let (input, body) = parse_cartesian_expression(input)?;
+                    let (input, _) = token(TokenType::CloseCurly)(input)?;
+
+                    Ok((input, CartesianExpression::let_(arg, var_name, body)))
+                },
+                "match" => {
+                    let (input, arg) = parse_cartesian_expression(input)?;
+                    let (input, _) = token(TokenType::OpenCurly)(input)?;
+                    let (input, branches) = parse_cartesian_branches(input)?;
+                    let (input, _) = token(TokenType::CloseCurly)(input)?;
+
+                    Ok((input, CartesianExpression::match_(arg, branches)))
+                },
+                "obj" => {
+                    // obj { #hd () . e0 | #tl () . e1 }
+                    let (input, _) = token(TokenType::OpenCurly)(input)?;
+                    let (input, branches) = parse_cartesian_branches(input)?;
+                    let (input, _) = token(TokenType::CloseCurly)(input)?;
+                    Ok((input, CartesianExpression::object(branches)))
+                },
+                "send" => {
+                    // send($obj, $msg)
+                    let (input, (e0, e1)) = parse_cartesian_arg_list2(input)?;
+                    Ok((input, CartesianExpression::send(e0, e1)))
+                },
+                "thunk" => {
+                    // thunk { e }
+                    let (input, _) = token(TokenType::OpenCurly)(input)?;
+                    let (input, e) = parse_linear_expression(input)?;
+                    let (input, _) = token(TokenType::CloseCurly)(input)?;
+                    Ok((input, CartesianExpression::thunk(e)))
+                },
+                s => match identifier_to_operation_code(s) {
+                    Some(op_code) => parse_cartesian_operator_arguments(op_code, input),
+                    None => {
+                        let (input, token_match) = peek_token(TokenType::OpenParen)(input)?;
+                        match token_match {
+                            Some(_) => {
+                                // Here we have a function call
+                                let (input, _) = token(TokenType::OpenParen)(input)?;
+                                let (input, arguments) = cartesian_expression_vector(input)?;
+                                let (input, _) = token(TokenType::CloseParen)(input)?;
+                                Ok((input, CartesianExpression::call(FunctionName::new(identifier), arguments)))
+                            },
+                            None => {
+                                // TODO: Check if this is a function application
+                                // I need to peek if the next token is an open paren
+                                Err(nom::Err::Error(nom::error::Error { input: input.input, code: nom::error::ErrorKind::Alt }))
+                            }
+                        }
+                    },
+                },
+            }
+        },
+        _ => Err(nom::Err::Error(nom::error::Error { input: input.input, code: nom::error::ErrorKind::Alt })),
+    }
+}
+
+pub fn parse_linear_expression(input: TokenStream) -> IResult0<LinearExpression> {
+    let (input, token0) = anytoken(input)?;
+    use Token::*;
+    match token0 {
+        Int(x) => Ok((input, LinearExpression::int(x))),
+        VarUseSymbol => {
+            let (input, var_name) = anyidentifier(input)?;
+            Ok((input, LinearExpression::var_use(VariableName::new(var_name))))
+        },
+        TagSymbol => {
+            let (input, tag) = anyidentifier(input)?;
+            let (input, arg) = parse_linear_expression(input)?;
+            Ok((input, LinearExpression::tagged(Tag::new(tag), arg)))
+        },
+        OpenBracket => {
+            // tuple
+            let (input, args) = linear_expression_vector(input)?;
+            let (input, _) = token(TokenType::CloseBracket)(input)?;
+            Ok((input, LinearExpression::tuple(args)))
+        },
+        OpenParen => {
+            todo!("Unexpected `(` in linear mode.")
+        },
+        Identifier(identifier) => {
+            match &identifier[..] {
+                "let" => {
+                    // let { a = 5 . body }
+                    let (input, _) = token(TokenType::OpenCurly)(input)?;
+                    let (input, (var_name, arg)) = parse_linear_var_binding(input)?;
+                    let (input, _) = token(TokenType::BindingSeparator)(input)?;
+
+                    let (input, body) = parse_linear_expression(input)?;
+                    let (input, _) = token(TokenType::CloseCurly)(input)?;
+
+                    Ok((input, LinearExpression::let_(arg, var_name, body)))
+                },
+                // TODO: You need some sort-of let-cart also
+                "let-cart" => todo!(),
+                "match" => {
+                    let (input, arg) = parse_linear_expression(input)?;
+                    let (input, _) = token(TokenType::OpenCurly)(input)?;
+                    let (input, branches) = parse_linear_branches(input)?;
+                    let (input, _) = token(TokenType::CloseCurly)(input)?;
+
+                    Ok((input, LinearExpression::match_(arg, branches)))
+                },
+                "obj" => {
+                    // obj { a = e0, b = e1 . #hd () . body0 | #tl () . body1 }
+                    let (input, _) = token(TokenType::OpenCurly)(input)?;
+                    let (input, captured_bindings) = parse_linear_var_bindings(input)?;
+                    let (input, _) = token(TokenType::BindingSeparator)(input)?;
+                    let (input, branches) = parse_linear_branches(input)?;
+                    let (input, _) = token(TokenType::CloseCurly)(input)?;
+                    Ok((input, LinearExpression::object(captured_bindings, branches)))
+                },
+                "send" => {
+                    // send[%obj, %msg]
+                    let (input, (e0, e1)) = parse_linear_arg_list2(input)?;
+                    Ok((input, LinearExpression::send(e0, e1)))
+                },
+                "force" => {
+                    // force[%some_thunk]
+                    let (input, _) = token(TokenType::OpenBracket)(input)?;
+                    let (input, e) = parse_cartesian_expression(input)?;
+                    let (input, _) = token(TokenType::CloseBracket)(input)?;
+                    Ok((input, LinearExpression::force(e)))
+                }
+                s => match identifier_to_operation_code(s) {
+                    Some(op_code) => 
+                        parse_linear_operator_arguments(op_code, input),
+                    None => {
+                        let (input, token_match) = peek_token(TokenType::OpenBracket)(input)?;
+                        match token_match {
+                            Some(_) => {
+                                // Here we have a function call
+                                let (input, _) = token(TokenType::OpenParen)(input)?;
+                                let (input, cartesian_arguments) = cartesian_expression_vector(input)?;
+                                let (input, _) = token(TokenType::CloseParen)(input)?;
+
+                                let (input, _) = token(TokenType::OpenBracket)(input)?;
+                                let (input, arguments) = linear_expression_vector(input)?;
+                                let (input, _) = token(TokenType::CloseBracket)(input)?;
+                                Ok((input, LinearExpression::call(FunctionName::new(identifier), cartesian_arguments, arguments)))
+                            },
+                            None => {
+                                // TODO: Check if this is a function application
+                                // I need to peek if the next token is an open paren
+                                Err(nom::Err::Error(nom::error::Error { input: input.input, code: nom::error::ErrorKind::Alt }))
+                            }
+                        }
+                    },
+                },
+            }
+        },
+        _ => Err(nom::Err::Error(nom::error::Error { input: input.input, code: nom::error::ErrorKind::Alt })),
+    }
+}
+
 // ===Program===
 #[derive(Debug, Clone)]
 pub struct Program {
-    pub function_definitions: HashMap<FunctionName, FunctionDefinition>,
-    pub function_definitions_ordering: Vec<FunctionName>,
+    pub cartesian_function_definitions: HashMap<FunctionName, CartesianFunctionDefinition>,
+    pub linear_function_definitions: HashMap<FunctionName, LinearFunctionDefinition>,
+    pub function_definitions_ordering: Vec<(Mode, FunctionName)>,
 }
 
 #[derive(Debug, Clone)]
@@ -48,43 +498,48 @@ impl FunctionDefinition {
 impl Program {
     pub fn new() -> Self {
         Self {
-            function_definitions: HashMap::new(),
+            cartesian_function_definitions: HashMap::new(),
+            linear_function_definitions: HashMap::new(),
             function_definitions_ordering: vec![],
         }
     }
 
     pub fn update_function_definition(&mut self, fn_def: FunctionDefinition) {
         let fn_name = fn_def.name().clone();
-        self.function_definitions.insert(fn_name.clone(), fn_def);
+        match fn_def {
+            FunctionDefinition::Cartesian(fn_def) => {
+                self.cartesian_function_definitions.insert(fn_name.clone(), fn_def);
 
-        // This is a bit insane. But function redefinitions don't occur frequently.
-        match self.function_definitions_ordering.iter().position(|name| name == &fn_name) {
-            Some(fn_index) => {
-                self.function_definitions_ordering.remove(fn_index);
+                // This is a bit insane. But function redefinitions don't occur frequently.
+                match self.function_definitions_ordering.iter().position(|(mode, name)| matches!(mode, Mode::Cartesian) && name == &fn_name) {
+                    Some(fn_index) => {
+                        self.function_definitions_ordering.remove(fn_index);
+                    },
+                    None => {}
+                }
+                self.function_definitions_ordering.push((Mode::Cartesian, fn_name));
             },
-            None => {}
+            FunctionDefinition::Linear(fn_def) => {
+                self.linear_function_definitions.insert(fn_name.clone(), fn_def);
+
+                // This is a bit insane. But function redefinitions don't occur frequently.
+                match self.function_definitions_ordering.iter().position(|(mode, name)| matches!(mode, Mode::Linear) && name == &fn_name) {
+                    Some(fn_index) => {
+                        self.function_definitions_ordering.remove(fn_index);
+                    },
+                    None => {}
+                }
+                self.function_definitions_ordering.push((Mode::Linear, fn_name));
+            },
         }
-        self.function_definitions_ordering.push(fn_name);
     }
 
     pub fn get_linear_function_definition(&self, function_name: FunctionName) -> Option<&LinearFunctionDefinition> {
-        use FunctionDefinition::*;
-        match self.function_definitions.get(&function_name) {
-            Some(Linear(fn_def)) => {
-                Some(fn_def)
-            },
-            _ => None,
-        }
+        self.linear_function_definitions.get(&function_name)
     }
 
     pub fn get_cartesian_function_definition(&self, function_name: FunctionName) -> Option<&CartesianFunctionDefinition> {
-        use FunctionDefinition::*;
-        match self.function_definitions.get(&function_name) {
-            Some(Cartesian(fn_def)) => {
-                Some(fn_def)
-            },
-            _ => None,
-        }
+        self.cartesian_function_definitions.get(&function_name)
     }
 
     // TODO: Why do I need this?
@@ -116,6 +571,12 @@ pub enum OperationCode {
 
 // ==Cartesian==
 #[derive(Debug, Clone)]
+pub enum Expression {
+    Cartesian(CartesianExpression),
+    Linear(LinearExpression), 
+}
+
+#[derive(Debug, Clone)]
 pub struct CartesianExpression(pub Rc<CartesianExpression0>);
 
 #[derive(Debug, Clone)]
@@ -133,6 +594,21 @@ pub enum CartesianExpression0 {
 
     // TODO: Is this a good name for this? Maybe `Freeze` would be better?
     Thunk(LinearExpression), // This is the coinductive going up thing to which you can send a `force` message.
+}
+
+impl CartesianExpression {
+    fn int(x: i32) -> Self { Self(Rc::new(CartesianExpression0::Int(x))) }
+    fn operation_application(op_code: OperationCode, e0: Self, e1: Self) -> Self { Self(Rc::new(CartesianExpression0::OperationApplication(op_code, e0, e1))) }
+    fn call(fn_name: FunctionName, args: Vec<Self>) -> Self { Self(Rc::new(CartesianExpression0::Call(fn_name, args))) }
+    fn tagged(tag: Tag, e: CartesianExpression) -> Self { Self(Rc::new(CartesianExpression0::Tagged(tag, e))) }
+    fn tuple(args: Vec<CartesianExpression>) -> Self { Self(Rc::new(CartesianExpression0::Tuple(args))) }
+    fn match_(arg: Self, branches: Vec<CartesianPatternBranch>) -> Self { Self(Rc::new(CartesianExpression0::Match { arg, branches })) }
+    fn var_lookup(var: VariableName) -> Self { Self(Rc::new(CartesianExpression0::VarLookup(var))) }
+    fn let_(arg: Self, var: VariableName, body: Self) -> Self { Self(Rc::new(CartesianExpression0::Let { arg, var, body })) }
+    // TODO: The double Rc<_> here is very suspicious.
+    fn object(branches: Vec<CartesianPatternBranch>) -> Self { Self(Rc::new(CartesianExpression0::Object { branches: Rc::new(branches) })) }
+    fn send(obj: Self, msg: Self) -> Self { Self(Rc::new(CartesianExpression0::Send(obj, msg))) }
+    fn thunk(e: LinearExpression) -> Self { Self(Rc::new(CartesianExpression0::Thunk(e))) }
 }
 
 // ==Linear==
@@ -163,6 +639,21 @@ pub struct LinearBindings(Box<LinearBindings0>);
 pub enum LinearBindings0 {
     Empty,
     Push { var: VariableName, expr: LinearExpression, parent: LinearBindings },
+}
+
+impl LinearExpression {
+    fn int(x: i32) -> Self { Self(Box::new(LinearExpression0::Int(x))) }
+    fn operation_application1(op_code: OperationCode, e0: Self) -> Self { Self(Box::new(LinearExpression0::OperationApplication1(op_code, e0))) }
+    fn operation_application2(op_code: OperationCode, e0: Self, e1: Self) -> Self { Self(Box::new(LinearExpression0::OperationApplication2(op_code, e0, e1))) }
+    fn call(fn_name: FunctionName, cartesian_args: Vec<CartesianExpression>, args: Vec<Self>) -> Self { Self(Box::new(LinearExpression0::Call(fn_name, cartesian_args, args))) }
+    fn tagged(tag: Tag, e: LinearExpression) -> Self { Self(Box::new(LinearExpression0::Tagged(tag, e))) }
+    fn tuple(args: Vec<LinearExpression>) -> Self { Self(Box::new(LinearExpression0::Tuple(args))) }
+    fn match_(arg: Self, branches: Vec<LinearPatternBranch>) -> Self { Self(Box::new(LinearExpression0::Match { arg, branches })) }
+    fn var_use(var: VariableName) -> Self { Self(Box::new(LinearExpression0::VarUse(var))) }
+    fn let_(arg: Self, var: VariableName, body: Self) -> Self { Self(Box::new(LinearExpression0::Let { arg, var, body })) }
+    fn object(moved_env: LinearBindings, branches: Vec<LinearPatternBranch>) -> Self { Self(Box::new(LinearExpression0::Object { captured_bindings: moved_env, branches })) }
+    fn send(obj: Self, msg: Self) -> Self { Self(Box::new(LinearExpression0::Send(obj, msg))) }
+    fn force(obj: CartesianExpression) -> Self { Self(Box::new(LinearExpression0::Force(obj))) }
 }
 
 // ===Patterns===
@@ -247,6 +738,62 @@ impl LinearValue {
                 (Tuple(values0), Tuple(values1))
             },
             ClosureObject { .. } => todo!(), // this should crash
+        }
+    }
+}
+
+impl fmt::Display for Value {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use Value::*;
+        match self {
+            Cartesian(value) => value.fmt(f),
+            Linear(value) => value.fmt(f),
+        }
+    }
+}
+
+impl fmt::Display for CartesianValue {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use CartesianValue::*;
+        match self {
+            Int(x) => write!(f, "{}", x),
+            Tagged(tag, val) => write!(f, "{} {}", tag, val),
+            Tuple(values) => {
+                write!(f, "(")?;
+                let mut values = (&**values).iter().peekable();
+                while let Some(val) = values.next() {
+                    match values.peek() {
+                        Some(_) => write!(f, "{}, ", val)?,
+                        None => write!(f, "{}", val)?,
+                    }
+                }
+                write!(f, ")")
+            },
+            ClosureObject { ..  } => write!(f, "obj {{...}}"),
+            Thunk { .. } => write!(f, "thunk {{...}}"),
+        }
+    }
+}
+
+impl fmt::Display for LinearValue {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use LinearValue::*;
+        match self {
+            Int(x) => write!(f, "{}", x),
+            Tagged(tag, val) => write!(f, "{}{}", tag, val),
+            Tuple(values) => {
+                write!(f, "[")?;
+                let mut values = (&**values).iter().peekable();
+                while let Some(val) = values.next() {
+                    match values.peek() {
+                        Some(_) => write!(f, "{}, ", val)?,
+                        None => write!(f, "{}", val)?,
+                    }
+                }
+                write!(f, "]")
+            },
+            // TODO: Perhaps show captured resources?
+            ClosureObject { ..  } => write!(f, "obj {{...}}"),
         }
     }
 }
@@ -356,6 +903,24 @@ pub enum PatternMatchErrror {
 }
 
 // ===Evaluation===
+pub fn eval_start(program: &Program, e: Expression) -> Result<Value, Error> {
+    use Expression::*;
+    match e {
+        Cartesian(e) => {
+            let value = cartesian_eval(program, &CartesianEnv::new(), &e)?;
+            Ok(Value::Cartesian(value))
+        },
+        Linear(e) => {
+            let (env, value) = linear_eval(program, &CartesianEnv::new(), LinearEnv::new(), e)?;
+            if env.is_empty() {
+                Ok(Value::Linear(value))
+            } else {
+                Err(Error::UnconsumedResources(env))
+            }
+        }
+    }
+}
+
 fn cartesian_eval(program: &Program, env: &CartesianEnv, e: &CartesianExpression) -> Result<CartesianValue, Error> {
     use CartesianExpression0::*;
     match &*(e.0) {

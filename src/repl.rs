@@ -10,7 +10,7 @@ use rustyline::{
     config::Builder as LineBuilder,
 };
 use crate::{Editor, IResult};
-use crate::interpreter::{Interpreter, CartesianInterpreter, LinearInterpreter};
+use crate::interpreter::{Interpreter, CartesianInterpreter, LinearInterpreter, CombinedInterpreter};
 
 #[derive(Debug)]
 enum Command<'a> {
@@ -287,6 +287,7 @@ impl Repl for CartesianRepl {
     fn current_file_mut(&mut self) -> &mut Option<Rc<String>> { &mut self.current_file }
     fn history_file_name(&self) -> &'static str { &self.history_file_name }
 }
+
 // =Linear=
 pub struct LinearRepl {
     interpreter: LinearInterpreter,
@@ -319,6 +320,55 @@ impl LinearRepl {
 
 impl Repl for LinearRepl {
     type Interpreter = LinearInterpreter;
+
+    fn interpreter(&self) -> &Self::Interpreter { &self.interpreter }
+    fn interpreter_mut(&mut self) -> &mut Self::Interpreter { &mut self.interpreter }
+
+    fn editor(&self) -> &Editor { &self.editor }
+    fn editor_mut(&mut self) -> &mut Editor { &mut self.editor }
+
+    fn current_file(&self) -> Option<Rc<String>> {
+        match &self.current_file {
+            Some(current_file) => Some(current_file.clone()),
+            None => None
+        }
+    }
+    fn current_file_mut(&mut self) -> &mut Option<Rc<String>> { &mut self.current_file }
+    fn history_file_name(&self) -> &'static str { &self.history_file_name }
+}
+
+// =Combined=
+pub struct CombinedRepl {
+    interpreter: CombinedInterpreter,
+    editor: Editor,
+    current_file: Option<Rc<String>>,
+    history_file_name: &'static str,
+}
+
+impl CombinedRepl {
+    pub fn new() -> rustyline::Result<Self> {
+        let config = LineBuilder::new()
+            // .edit_mode(rustyline::config::EditMode::Vi)
+            .build();
+
+        let mut editor: Editor = Editor::with_config(config)?;
+
+        let history_file_name = ".history_combined.txt";
+        if editor.load_history(history_file_name).is_err() {
+            println!("No previous history.");
+        }
+
+        Ok(Self {
+            interpreter: CombinedInterpreter::new(),
+            editor,
+            current_file: None,
+            history_file_name,
+        })
+    }
+}
+
+impl Repl for CombinedRepl {
+    type Interpreter = CombinedInterpreter;
 
     fn interpreter(&self) -> &Self::Interpreter { &self.interpreter }
     fn interpreter_mut(&mut self) -> &mut Self::Interpreter { &mut self.interpreter }
