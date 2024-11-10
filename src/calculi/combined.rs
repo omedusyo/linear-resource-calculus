@@ -130,6 +130,9 @@ pub enum CartesianExpression0 {
     Let { arg: CartesianExpression, var: VariableName, body: CartesianExpression },
     Object { branches: Rc<Vec<CartesianPatternBranch>> },
     Send(CartesianExpression, CartesianExpression),
+
+    // TODO: Is this a good name for this? Maybe `Freeze` would be better?
+    Thunk(LinearExpression), // This is the coinductive going up thing to which you can send a `force` message.
 }
 
 // ==Linear==
@@ -149,6 +152,8 @@ pub enum LinearExpression0 {
     Let { arg: LinearExpression, var: VariableName, body: LinearExpression },
     Object { captured_bindings: LinearBindings, branches: Vec<LinearPatternBranch> },
     Send(LinearExpression, LinearExpression),
+
+    Force(CartesianExpression),
 }
 
 #[derive(Debug, Clone)]
@@ -193,7 +198,11 @@ pub enum CartesianValue {
     Int(i32),
     Tagged(Tag, Box<CartesianValue>),
     Tuple(Vec<CartesianValue>),
-    ClosureObject { captured_env: CartesianEnv, branches: Rc<Vec<CartesianPatternBranch>> },
+    ClosureObject { captured_cartesian_env: CartesianEnv, branches: Rc<Vec<CartesianPatternBranch>> },
+    // TODO: How do I know that the `body` should be in Rc or Box?
+    // Thunk { captured_cartesian_env: CartesianEnv, body: LinearExpression }
+    // Thunk { captured_cartesian_env: CartesianEnv, body: Box<LinearExpression> }
+    Thunk { captured_cartesian_env: CartesianEnv, body: LinearExpression }
 }
 
 #[derive(Debug)]
@@ -209,12 +218,11 @@ impl LinearValue {
         use LinearValue::*;
         match self {
             Int(_x) => (),
-            Tagged(tag, val) => (*val).discard(),
+            Tagged(_tag, val) => (*val).discard(),
             Tuple(values) => {
                 for val in values {
                     let _ = val.discard();
                 }
-                ()
             },
             ClosureObject { .. } => todo!(), // this should crash
         }
@@ -403,17 +411,22 @@ fn cartesian_eval(program: &Program, env: &CartesianEnv, e: &CartesianExpression
             cartesian_eval(program, &env, body)
         },
         Object { branches } => {
-            Ok(CartesianValue::ClosureObject { captured_env: env.clone(), branches: Rc::clone(branches) })
+            Ok(CartesianValue::ClosureObject { captured_cartesian_env: env.clone(), branches: Rc::clone(branches) })
         },
         Send(e0, e1) => {
             let obj = cartesian_eval(program, env, e0)?;
             match obj {
-                CartesianValue::ClosureObject { captured_env, branches } => {
+                CartesianValue::ClosureObject { captured_cartesian_env: captured_env, branches } => {
                     let msg = cartesian_eval(program, env, e1)?;
                     cartesian_apply_msg_to_branches(program, &captured_env, &branches, &msg)
                 },
                 obj => Err(Error::AttemptToSendMessageToNonObject(Value::Cartesian(obj))),
             }
+        },
+
+        Thunk(linear_expr) => {
+            // TODO: The clone is expensive... Something is wrong.
+            Ok(CartesianValue::Thunk { captured_cartesian_env: env.clone(), body: linear_expr.clone() })
         }
     }
 }
@@ -525,6 +538,25 @@ fn linear_eval(program: &Program, cartesian_env: &CartesianEnv, env: LinearEnv, 
                     }
                 },
                 obj => Err(Error::AttemptToSendMessageToNonObject(Value::Linear(obj))),
+            }
+        },
+
+        Force(cartesian_expr) => {
+            // We need to evaluate this is empty linear environment, right?
+            // This better be a frozen linear object (that doesn't use resources, but it still
+            // weird ... it could be something in [Bool⊸ Bool], which is a process that need not
+            // capture a resource, but how the hell can it be copied?
+            let cartesian_val = cartesian_eval(program, cartesian_env, &cartesian_expr)?;
+            match cartesian_val {
+                CartesianValue::Thunk { captured_cartesian_env, body } => {
+                    let (new_env, val) = linear_eval(program, &captured_cartesian_env, LinearEnv::new(), body)?;
+                    if new_env.is_empty() {
+                        Ok((env, val))
+                    } else {
+                        Err(Error::UnconsumedResources(new_env))
+                    }
+                },
+                _ => todo!() // crash
             }
         }
     }

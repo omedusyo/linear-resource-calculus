@@ -385,12 +385,11 @@ impl Value {
         use Value::*;
         match self {
             Int(_x) => (),
-            Tagged(tag, val) => (*val).discard(),
+            Tagged(_tag, val) => (*val).discard(),
             Tuple(values) => {
                 for val in values {
                     let _ = val.discard();
                 }
-                ()
             },
             ClosureObject { .. } => todo!(), // this should crash
         }
