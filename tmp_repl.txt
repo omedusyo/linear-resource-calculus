@@ -198,3 +198,32 @@ range-iter[5, 0]
 :def fn f[x] { %x }
 
 
+obj {. #foo[] . 123 }
+
+:r
+
+send[incrementing_server[], #apply[5]]
+
+map_server()
+
+==[5, 0]
+
+incrementing-server[]
+
+range-iter[5, 0]
+
+map-server[incrementing-server[], range-iter[5, 0]]
+
+:r
+
+fib[5]
+
+
+dup_nat[5]
+
+// I need a builtin dup  that will clone inductive stuff, but will fail on objects
+
+dup[#cons[5, #nil[]]]
+
+
+send[fib[3, 5], #next[]]

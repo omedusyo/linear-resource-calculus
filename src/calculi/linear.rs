@@ -11,6 +11,8 @@ pub enum OperationCode {
     Sub,
     Mul,
     Eq,
+    Duplicate,
+    Discard,
 }
 
 fn identifier_to_operation_code(str: &str) -> Option<OperationCode> {
@@ -19,6 +21,8 @@ fn identifier_to_operation_code(str: &str) -> Option<OperationCode> {
         "*" => Some(OperationCode::Mul),
         "sub" => Some(OperationCode::Sub),
         "==" => Some(OperationCode::Eq),
+        "dup" => Some(OperationCode::Duplicate),
+        "discard" => Some(OperationCode::Discard),
         _ => None
     }
 }
@@ -28,19 +32,27 @@ fn parse_operator_arguments(op_code: OperationCode, input: TokenStream) -> IResu
     match op_code {
         Add => {
             let (input, (e0, e1)) = parse_arg_list2(input)?;
-            Ok((input, Expression::operation_application(op_code, e0, e1)))
+            Ok((input, Expression::operation_application2(op_code, e0, e1)))
         },
         Sub => {
             let (input, (e0, e1)) = parse_arg_list2(input)?;
-            Ok((input, Expression::operation_application(op_code, e0, e1)))
+            Ok((input, Expression::operation_application2(op_code, e0, e1)))
         },
         Mul => {
             let (input, (e0, e1)) = parse_arg_list2(input)?;
-            Ok((input, Expression::operation_application(op_code, e0, e1)))
+            Ok((input, Expression::operation_application2(op_code, e0, e1)))
         },
         Eq => {
             let (input, (e0, e1)) = parse_arg_list2(input)?;
-            Ok((input, Expression::operation_application(op_code, e0, e1)))
+            Ok((input, Expression::operation_application2(op_code, e0, e1)))
+        },
+        Duplicate => {
+            let (input, e0) = parse_arg_list1(input)?;
+            Ok((input, Expression::operation_application1(op_code, e0)))
+        },
+        Discard => {
+            let (input, e0) = parse_arg_list1(input)?;
+            Ok((input, Expression::operation_application1(op_code, e0)))
         },
     }
 }
@@ -53,6 +65,14 @@ fn parse_arg_list2(input: TokenStream) -> IResult0<(Expression, Expression)> {
     let (input, e1) = parse_expression(input)?;
     let (input, _) = token(TokenType::CloseBracket)(input)?;
     Ok((input, (e0, e1)))
+}
+
+fn parse_arg_list1(input: TokenStream) -> IResult0<Expression> {
+    // "[e0]  "
+    let (input, _) = token(TokenType::OpenBracket)(input)?;
+    let (input, e0) = parse_expression(input)?;
+    let (input, _) = token(TokenType::CloseBracket)(input)?;
+    Ok((input, e0))
 }
 
 // No parens, just a possibly empty comma separated list of identifiers.
@@ -295,7 +315,8 @@ pub struct Expression(pub Box<Expression0>);
 #[derive(Debug, Clone)]
 pub enum Expression0 {
     Int(i32),
-    OperationApplication(OperationCode, Expression, Expression),
+    OperationApplication1(OperationCode, Expression),
+    OperationApplication2(OperationCode, Expression, Expression),
     Call(FunctionName, Vec<Expression>),
     Tagged(Tag, Expression),
     Tuple(Vec<Expression>),
@@ -343,7 +364,8 @@ pub enum Pattern {
 
 impl Expression {
     fn int(x: i32) -> Self { Self(Box::new(Expression0::Int(x))) }
-    fn operation_application(op_code: OperationCode, e0: Self, e1: Self) -> Self { Self(Box::new(Expression0::OperationApplication(op_code, e0, e1))) }
+    fn operation_application1(op_code: OperationCode, e0: Self) -> Self { Self(Box::new(Expression0::OperationApplication1(op_code, e0))) }
+    fn operation_application2(op_code: OperationCode, e0: Self, e1: Self) -> Self { Self(Box::new(Expression0::OperationApplication2(op_code, e0, e1))) }
     fn call(fn_name: FunctionName, args: Vec<Self>) -> Self { Self(Box::new(Expression0::Call(fn_name, args))) }
     fn tagged(tag: Tag, e: Expression) -> Self { Self(Box::new(Expression0::Tagged(tag, e))) }
     fn tuple(args: Vec<Expression>) -> Self { Self(Box::new(Expression0::Tuple(args))) }
@@ -363,12 +385,51 @@ pub enum Value {
     ClosureObject { captured_env: Env, branches: Vec<PatternBranch> },
 }
 
+impl Value {
+    fn discard(self) -> () {
+        use Value::*;
+        match self {
+            Int(_x) => (),
+            Tagged(tag, val) => (*val).discard(),
+            Tuple(values) => {
+                for val in values {
+                    let _ = val.discard();
+                }
+                ()
+            },
+            ClosureObject { .. } => todo!(), // this should crash
+        }
+    }
+
+    fn duplicate(self) -> (Self, Self) {
+        use Value::*;
+        match self {
+            Int(x) => (Int(x), Int(x)),
+            Tagged(tag, val) => {
+                let (val0, val1) = (*val).duplicate();
+                (Tagged(tag.clone(), Box::new(val0)), Tagged(tag, Box::new(val1)))
+            },
+            Tuple(values) => {
+                let mut values0 = Vec::with_capacity(values.len());
+                let mut values1 = Vec::with_capacity(values.len());
+                for val in values {
+                    let (val0, val1) = val.duplicate();
+                    values0.push(val0);
+                    values1.push(val1);
+                }
+                (Tuple(values0), Tuple(values1))
+            },
+            ClosureObject { .. } => todo!(), // this should crash
+        }
+    }
+}
+
 impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use Value::*;
         match self {
             Int(x) => write!(f, "{}", x),
-            Tagged(tag, val) => write!(f, "{} {}", tag, val),
+            Tagged(tag, val) => write!(f, "{}{}", tag, val),
             Tuple(values) => {
                 write!(f, "[")?;
                 let mut values = (&**values).iter().peekable();
@@ -474,7 +535,31 @@ fn eval(program: Program, env: Env, e: Expression) -> Result<(Program, Env, Valu
     use Expression0::*;
     match *e.0 {
         Int(x) => Ok((program, env, Value::Int(x))),
-        OperationApplication(code, e0, e1) => {
+        OperationApplication1(code, e0) => {
+            let (program, env, val0) = eval(program, env, e0)?;
+            use OperationCode::*;
+            Ok((
+                program,
+                env,
+                match code {
+                    Duplicate => {
+                        let (v0, v1) = val0.duplicate();
+                        Value::Tuple(vec![v0, v1])
+                    },
+                    Discard => {
+                        let () = val0.discard();
+                        Value::Tuple(vec![])
+                    },
+                    _ => todo!(), // This should crash
+                    // if x0 == x1 {
+                    //     Value::Tagged(Tag::new("T".to_string()), Box::new(Value::Tuple(vec![])))
+                    // } else {
+                    //     Value::Tagged(Tag::new("F".to_string()), Box::new(Value::Tuple(vec![])))
+                    // }
+                }
+            ))
+        },
+        OperationApplication2(code, e0, e1) => {
             let (program, env, val0) = eval(program, env, e0)?;
             let (program, env, val1) = eval(program, env, e1)?;
             match (val0, val1) {
@@ -491,7 +576,8 @@ fn eval(program: Program, env: Env, e: Expression) -> Result<(Program, Env, Valu
                                 Value::Tagged(Tag::new("T".to_string()), Box::new(Value::Tuple(vec![])))
                             } else {
                                 Value::Tagged(Tag::new("F".to_string()), Box::new(Value::Tuple(vec![])))
-                            }
+                            },
+                            Discard | Duplicate => todo!()
                         }
                     ))
                 },

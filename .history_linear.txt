@@ -17,3 +17,12 @@ match #succ #zero [] { #zero[] . [#zero[], #zero[]]  | #succ n . %n }
 match #succ #zero [] { #zero[] . [#zero[], #zero[]]  | #succ n . [%n] }
 match #succ #zero [] { #zero[] . [#zero[], #zero[]]  | #succ n . %n }
 match #succ #zero [] { #zero[] . [#zero[], #zero[]]  | #succ n . [%n] }
+obj {. #foo[] . 123 }
+incrementing_server[]
+send[incrementing_server[], #stop[]]
+send[incrementing_server[], #apply[5]]
+==[5, 0]
+range-iter[5, 0]
+dup_nat[5]
+dup[5]
+dup[#cons[5, #nil[]]]

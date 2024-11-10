@@ -50,3 +50,37 @@ fn example_tuple_0[] {
 fn example_tuple_1[] {
   obj { n = 123 . #fst[] . %n | #snd[] . +[%n, 100] }
 }
+
+fn map-server[f, xs] { match %xs {
+  #nil[] . match send[%f, #stop[]] { [] . #nil[] }
+| #cons[x, xs] . match send[%f, #apply[%x]] {
+    [y, f] . #cons[%y, map-server[%f, %xs]]
+  }
+}}
+
+fn incrementing-server[] { obj { . 
+  #stop[] . []
+| #apply[x] . [+[%x, 1], incrementing-server[]]
+}}
+
+fn range-iter[n, i] { 
+  match dup[%n] { [n-copy, n] .
+  match dup[%i] { [i-copy, i] .
+  match ==[%n, %i] {
+    #T[] .
+      match discard[%n-copy] { [] .
+      match discard[%i-copy] { [] .
+        #nil[] 
+      }}
+  | #F[] . match dup[%i-copy] { [i-copy, i] . #cons[%i-copy, range-iter[%n-copy, +[%i, 1]]] }
+  }
+}}}
+
+fn fib[x, y] { obj { x = %x, y = %y .
+   #next[] .
+   match dup[%x] { [x0, x] .
+   match dup[%y] { [y0, y] .
+     [%x,  fib[%y, +[%x0, %y0]]]
+   }}
+}}
+
