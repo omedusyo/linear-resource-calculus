@@ -261,11 +261,19 @@ cargo run repl combined
 
 :list fn
 
+lin pyth(3,4)[]
+
+lin id()[5]
+
 :r
 
 cart pyth(3, 4)
 
 lin dup[3]
+
+lin let { x = 123 . %x }
+
+lin let-cart { x = 123 . $x }
 
 
 cargo build

@@ -442,9 +442,10 @@ pub fn parse_linear_expression(input: TokenStream) -> IResult0<LinearExpression>
                     Some(op_code) => 
                         parse_linear_operator_arguments(op_code, input),
                     None => {
-                        let (input, token_match) = peek_token(TokenType::OpenBracket)(input)?;
+                        let (input, token_match) = peek_token(TokenType::OpenParen)(input)?;
                         match token_match {
                             Some(_) => {
+                                println!("yooo");
                                 // Here we have a function call
                                 let (input, _) = token(TokenType::OpenParen)(input)?;
                                 let (input, cartesian_arguments) = cartesian_expression_vector(input)?;
@@ -642,6 +643,10 @@ pub enum LinearExpression0 {
                              // does it mean on type level? Each cartesian value must also be a linear value.
     VarUse(VariableName),
     Let { arg: LinearExpression, var: VariableName, body: LinearExpression },
+    // TODO: you have 
+    //   let-cart { x = cartesian-expr . lin-body }
+    // but you also need to unwrap the cartesian expression hiding as linear:
+    //   let-cart { x = linear-expr . lin-body } where at runtime `linear-expr` has to eval to `cart(cart-val)`
     LetCartesian { cartesian_arg: CartesianExpression, var: VariableName, body: LinearExpression },
     Object { captured_bindings: LinearBindings, branches: Vec<LinearPatternBranch> },
     Send(LinearExpression, LinearExpression),

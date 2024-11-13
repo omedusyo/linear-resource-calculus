@@ -8,3 +8,7 @@ fn lin id()[a] {
   %a
 }
 
+fn lin pyth(x, y)[] {
+  let-cart { z = pyth($x, $y) . $z }
+}
+
