@@ -5,16 +5,6 @@ use crate::IResult0;
 use std::collections::HashMap;
 
 // ===parser===
-#[derive(Debug, PartialEq, Clone)]
-pub enum OperationCode {
-    Add,
-    Sub,
-    Mul,
-    Eq,
-    Duplicate,
-    Discard,
-}
-
 fn identifier_to_operation_code(str: &str) -> Option<OperationCode> {
     match str {
         "+" => Some(OperationCode::Add),
@@ -329,6 +319,17 @@ pub enum Expression0 {
     Send(Expression, Expression),
 }
 
+#[derive(Debug, PartialEq, Clone)]
+pub enum OperationCode {
+    Add,
+    Sub,
+    Mul,
+    Eq,
+    Duplicate,
+    Discard,
+}
+
+
 // TODO: Can you refine this into a dependent version of bindings?
 // Note that these bindings contain expressions, not values.
 // This is purely for the move into object syntax.
@@ -344,12 +345,6 @@ pub enum Bindings0 {
 #[derive(Debug, Clone)]
 pub struct PatternBranch {
     pub pattern: Pattern,
-    pub body: Expression,
-}
-
-#[derive(Debug)]
-pub struct TuplePatternBranch {
-    pub patterns: Vec<Pattern>,
     pub body: Expression,
 }
 
@@ -390,12 +385,11 @@ impl Value {
         use Value::*;
         match self {
             Int(_x) => (),
-            Tagged(tag, val) => (*val).discard(),
+            Tagged(_tag, val) => (*val).discard(),
             Tuple(values) => {
                 for val in values {
                     let _ = val.discard();
                 }
-                ()
             },
             ClosureObject { .. } => todo!(), // this should crash
         }
@@ -488,12 +482,12 @@ impl Env {
     }
 
     // No difference from cartesian case.
-    fn extend(self, var: VariableName, value: Value) -> Env {
+    fn extend(self, var: VariableName, value: Value) -> Self {
         Self(Box::new(Env0::Push { var, value, parent: self }))
     }
 
     // No difference from cartesian case.
-    fn extend_many(mut self, bindings: impl Iterator<Item=(VariableName, Value)>) -> Env {
+    fn extend_many(mut self, bindings: impl Iterator<Item=(VariableName, Value)>) -> Self {
         for (var, val) in bindings {
             self = self.extend(var, val);
         }
@@ -502,16 +496,18 @@ impl Env {
 }
 
 // ===Error===
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub enum Error {
     FunctionLookupFailure(FunctionName),
     FunctionCallArityMismatch { fn_name: FunctionName, expected: usize, received: usize },
     VariableLookupFailure(VariableName),
     UnableToFindMatchingPattern,
     InvalidPatternMatch(PatternMatchErrror),
+    UnconsumedResources(Env),
+    AttemptToSendMessageToNonObject(Value),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub enum PatternMatchErrror {
     TaggedValueFedToNonTaggedPattern,
     TupleFedToNonTuplePattern,
@@ -526,7 +522,7 @@ pub fn eval_start(program: Program, e: Expression) -> Result<(Program, Value), E
     if env.is_empty() {
         Ok((program, value))
     } else {
-        todo!()
+        Err(Error::UnconsumedResources(env))
     }
 }
 
@@ -551,11 +547,6 @@ fn eval(program: Program, env: Env, e: Expression) -> Result<(Program, Env, Valu
                         Value::Tuple(vec![])
                     },
                     _ => todo!(), // This should crash
-                    // if x0 == x1 {
-                    //     Value::Tagged(Tag::new("T".to_string()), Box::new(Value::Tuple(vec![])))
-                    // } else {
-                    //     Value::Tagged(Tag::new("F".to_string()), Box::new(Value::Tuple(vec![])))
-                    // }
                 }
             ))
         },
@@ -647,10 +638,10 @@ fn eval(program: Program, env: Env, e: Expression) -> Result<(Program, Env, Valu
                     if captured_env.is_empty() {
                         Ok((program, env, val))
                     } else {
-                        todo!()
+                        Err(Error::UnconsumedResources(captured_env))
                     }
                 },
-                _ => todo!(),
+                obj => Err(Error::AttemptToSendMessageToNonObject(obj)),
             }
         }
     }
@@ -658,7 +649,7 @@ fn eval(program: Program, env: Env, e: Expression) -> Result<(Program, Env, Valu
 
 // We return `(Env, Env)`.
 // The first component is what remains of `env`, while the second is the result of evaluating `bindings`
-fn eval_bindings(mut program: Program, mut env: Env, bindings: Bindings) -> Result<(Program, Env, Env), Error> {
+fn eval_bindings(program: Program, env: Env, bindings: Bindings) -> Result<(Program, Env, Env), Error> {
     use Bindings0::*;
     match *bindings.0 {
         Empty => Ok((program, env, Env::new())),
@@ -802,6 +793,6 @@ fn apply_function(program: Program, fn_name: FunctionName, arg_values: Vec<Value
     if env.is_empty() {
         Ok((program, val))
     } else {
-        todo!()
+        Err(Error::UnconsumedResources(env))
     }
 }

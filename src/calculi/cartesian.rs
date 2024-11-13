@@ -448,11 +448,11 @@ impl Env {
     }
 
 
-    fn extend(self, var_name: VariableName, value: Value) -> Env {
+    fn extend(self, var_name: VariableName, value: Value) -> Self {
         Self(Rc::new(Env0::Push { var: var_name, value, parent: self }))
     }
 
-    fn extend_many(mut self, bindings: Vec<(VariableName, Value)>) -> Env {
+    fn extend_many(mut self, bindings: impl Iterator<Item=(VariableName, Value)>) -> Self {
         for (var, val) in bindings {
             self = self.extend(var, val);
         }
@@ -461,12 +461,13 @@ impl Env {
 }
 
 // ===Error===
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub enum Error {
     FunctionLookupFailure(FunctionName),
     FunctionCallArityMismatch { fn_name: FunctionName, expected: usize, received: usize },
     VariableLookupFailure(VariableName),
     UnableToFindMatchingPattern,
+    AttemptToSendMessageToNonObject(Value),
 }
 
 // ===Evaluation===
@@ -541,7 +542,7 @@ fn eval(program: &Program, env: &Env, e: &Expression) -> Result<Value, Error> {
                     let msg = eval(program, env, e1)?;
                     apply_msg_to_branches(program, &captured_env, &branches, &msg)
                 },
-                _ => todo!(),
+                obj => Err(Error::AttemptToSendMessageToNonObject(obj)),
             }
         }
     }
@@ -551,7 +552,7 @@ fn apply_msg_to_branches(program: &Program, env: &Env, branches: &[PatternBranch
     for branch in branches {
         match branch.pattern.match_(val) {
             Some(bindings) => {
-                let env = env.clone().extend_many(bindings);
+                let env = env.clone().extend_many(bindings.into_iter());
                 return eval(program, &env, &branch.body)
             },
             None => {},
@@ -571,5 +572,5 @@ fn apply_function(program: &Program, fn_name: FunctionName, arg_values: Vec<Valu
     for (i, val) in arg_values.into_iter().enumerate() {
         bindings.push((fn_def.parameters[i].clone(), val));
     }
-    eval(program, &Env::new().extend_many(bindings), &fn_def.body)
+    eval(program, &Env::new().extend_many(bindings.into_iter()), &fn_def.body)
 }

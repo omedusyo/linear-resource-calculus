@@ -1,0 +1,19 @@
+#V2
+cart +(1, 2)
+lin %x
+cart $x
+lin 123
+cart #foo()
+lin let { a = 123 . %a }
+lin let { a = 123 . +[%a, 1] }
+cart let { a = 123 . +($a, 1) }
+fn cart id(x) { $x }
+cart id(123)
+fn lin id()[a] { %a }
+cart pyth(3, 4)
+lin dup[3]
+cart let { x = thunk { +[123, 5] } . ($x, $x) }
+lin let { x = 123 . %x }
+lin let-cart { x = 123 . $x }
+lin id()[5]
+lin pyth(3,4)[]

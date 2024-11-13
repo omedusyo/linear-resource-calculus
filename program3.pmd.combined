@@ -1,0 +1,14 @@
+fn cart id(x) { $x }
+
+fn cart square(x) { *($x, $x) }
+
+fn cart pyth(x, y) { +(square($x), square($y)) }
+
+fn lin id()[a] {
+  %a
+}
+
+fn lin pyth(x, y)[] {
+  let-cart { z = pyth($x, $y) . $z }
+}
+

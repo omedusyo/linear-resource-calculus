@@ -19,4 +19,6 @@
   This is like a limited version of dependent function types, where the domain of the family (bundle/fibration) is just a very finite,
   statically known set. With this, we actually gain more expressive power than just with pattern matching - where without dependent types,
   each branch has to have the same type.
+* In the combined calculus, cartesian values can be thought of as linear values too.
+  Interestingly it is trivial to discard/duplicate them. Those are very cheap operations.
 

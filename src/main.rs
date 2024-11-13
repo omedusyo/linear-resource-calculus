@@ -7,7 +7,7 @@ mod calculi;
 use clap;
 use rustyline:: history::FileHistory;
 use tokenizer::TokenStream;
-use repl::{Repl, CartesianRepl, LinearRepl};
+use repl::{Repl, CartesianRepl, LinearRepl, CombinedRepl};
 
 // ===Command Line Arguments===
 #[derive(clap::Parser, Debug)]
@@ -27,19 +27,25 @@ enum CliSubcommandRepl {
         #[arg(short, long)]
         load: Option<String> 
     },
+    Combined {
+        #[arg(short, long)]
+        load: Option<String> 
+    },
 }
 
 #[derive(Clone, Copy)]
-enum CalculusMode {
+enum Calculus {
     Cartesian,
     Linear,
+    Combined
 }
 
 impl CliSubcommandRepl {
-    fn to_calculus_mode(&self) -> CalculusMode {
+    fn to_calculus_mode(&self) -> Calculus {
         match self {
-            Self::Cartesian { .. } => CalculusMode::Cartesian,
-            Self::Linear { .. } => CalculusMode::Linear,
+            Self::Cartesian { .. } => Calculus::Cartesian,
+            Self::Linear { .. } => Calculus::Linear,
+            Self::Combined { .. } => Calculus::Combined,
         }
     }
 }
@@ -51,7 +57,7 @@ type Editor = rustyline::Editor<(), FileHistory>;
 type IResult0<'a, O> = Result<(TokenStream<'a>, O), nom::Err<nom::error::Error<&'a str>>>;
 
 fn repl(cli_subcommand_repl: CliSubcommandRepl) -> rustyline::Result<()> {
-    use CalculusMode::*;
+    use Calculus::*;
     let mode = cli_subcommand_repl.to_calculus_mode();
     match mode {
         Cartesian => {
@@ -61,7 +67,11 @@ fn repl(cli_subcommand_repl: CliSubcommandRepl) -> rustyline::Result<()> {
         Linear => {
             let mut repl = LinearRepl::new()?;
             repl.start_loop()
-        }
+        },
+        Combined => {
+            let mut repl = CombinedRepl::new()?;
+            repl.start_loop()
+        },
     }
 }
 
