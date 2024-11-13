@@ -116,7 +116,7 @@ fn parse_pattern(input: TokenStream) -> IResult0<Pattern> {
         },
         OpenBracket => {
             // Tuple pattern
-            let (input, patterns) = parse_pattern_sequence(input)?;
+            let (input, patterns) = parse_tuple_pattern_sequence(input)?;
             let (input, _) = token(TokenType::CloseBracket)(input)?;
             Ok((input, Pattern::Tuple(patterns)))
         },
@@ -126,20 +126,20 @@ fn parse_pattern(input: TokenStream) -> IResult0<Pattern> {
 }
 
 // This is a special case where the patterns are all nested tuple patterns.
-fn parse_deep_tuple_pattern_sequence(input: TokenStream) -> IResult0<Vec<Pattern>> {
-    delimited_vector(parse_deep_tuple_pattern, token(TokenType::Comma))(input)
+fn parse_tuple_pattern_sequence(input: TokenStream) -> IResult0<Vec<TuplePattern>> {
+    delimited_vector(parse_tuple_pattern, token(TokenType::Comma))(input)
 }
 
-fn parse_deep_tuple_pattern(input: TokenStream) -> IResult0<Pattern> {
+fn parse_tuple_pattern(input: TokenStream) -> IResult0<TuplePattern> {
     let (input, token0) = anytoken(input)?;
     use Token::*;
     match token0 {
         OpenBracket => {
-            let (input, patterns) = parse_deep_tuple_pattern_sequence(input)?;
+            let (input, patterns) = parse_tuple_pattern_sequence(input)?;
             let (input, _) = token(TokenType::CloseBracket)(input)?;
-            Ok((input, Pattern::Tuple(patterns)))
+            Ok((input, TuplePattern::Tuple(patterns)))
         },
-        Identifier(var_name) => Ok((input, Pattern::Variable(VariableName::new(var_name)))),
+        Identifier(var_name) => Ok((input, TuplePattern::Variable(VariableName::new(var_name)))),
         _ => Err(nom::Err::Error(nom::error::Error { input: input.input, code: nom::error::ErrorKind::Alt })),
     }
 }
@@ -237,7 +237,7 @@ pub fn parse_expression(input: TokenStream) -> IResult0<Expression> {
                             Ok((input, Expression::let_move(arg, var, body)))
                         },
                         Token::OpenBracket => { // we don't commit the bracket `[`
-                            let (input, tuple_pattern) = parse_deep_tuple_pattern(input)?;
+                            let (input, tuple_pattern) = parse_pattern(input)?;
                             let (input, _) = token(TokenType::Eq)(input)?;
                             let (input, arg) = parse_expression(input)?;
                             let (input, _) = token(TokenType::BindingSeparator)(input)?;
@@ -417,7 +417,13 @@ pub struct PatternBranch {
 pub enum Pattern {
     Variable(VariableName),
     Tagged(Tag, Box<Pattern>),
-    Tuple(Vec<Pattern>),
+    Tuple(Vec<TuplePattern>),
+}
+
+#[derive(Debug, Clone)]
+pub enum TuplePattern {
+    Variable(VariableName),
+    Tuple(Vec<TuplePattern>),
 }
 
 impl Expression {
@@ -609,6 +615,7 @@ pub enum PatternMatchErrror {
     TupleSizesDidNotMatch,
     TupleMatchedAgainstMatchExpressionWithMultipleBranches,
     AttemptToMatchNonInductiveValue,
+    AttemptToMatchNonTupleToTuplePattern,
 }
 
 // ===Evaluation===
@@ -854,38 +861,49 @@ fn apply_msg_to_branches(program: Program, env: Env, branches: Vec<PatternBranch
             // We require in this case that we have exactly one branch that destructures the tuple,
             // and that the patterns are match-all variables or tuple-patterns
             if branches.len() == 1 {
-                apply_tuple_to_branch(program, env, branches.into_iter().next().unwrap(), values)
+                let branch = branches.into_iter().next().unwrap();
+                match branch.pattern {
+                    Pattern::Tuple(patterns) => apply_tuple_to_branch(program, env, patterns, branch.body, values),
+                    _ => return Err(Error::InvalidPatternMatch(PatternMatchErrror::TupleFedToNonTuplePattern)),
+                }
             } else {
-                return Err(Error::InvalidPatternMatch(PatternMatchErrror::TupleMatchedAgainstMatchExpressionWithMultipleBranches))
+                Err(Error::InvalidPatternMatch(PatternMatchErrror::TupleMatchedAgainstMatchExpressionWithMultipleBranches))
             }
         },
         _ => {
             // The only pattern that could match this is MatchAll (i.e. a variable).
             // In which case we would have already matched this. This means that we have an error
             // here, e.g. someone fed an object into a match case that's not a match-all.
-            return Err(Error::InvalidPatternMatch(PatternMatchErrror::AttemptToMatchNonInductiveValue))
+            Err(Error::InvalidPatternMatch(PatternMatchErrror::AttemptToMatchNonInductiveValue))
         },
     }
 }
-fn apply_tuple_to_branch(program: Program, env: Env, branch: PatternBranch, values: Vec<Value>) -> Result<(Program, Env, Value), Error> {
-    match branch.pattern {
-        Pattern::Tuple(patterns) => {
-            if patterns.len() != values.len() {
-                return Err(Error::InvalidPatternMatch(PatternMatchErrror::TupleSizesDidNotMatch))
-            }
-            let mut env = env;
-            for (pattern, val) in patterns.into_iter().zip(values) {
-                match pattern {
-                    Pattern::Variable(var) => {
-                        env = env.extend(var, val);
-                    },
-                    _ => { return Err(Error::InvalidPatternMatch(PatternMatchErrror::TupleFedToNonTuplePattern)) }
-                }
-            }
-            return eval(program, env, branch.body)
-        },
-        _ => { return Err(Error::InvalidPatternMatch(PatternMatchErrror::TupleFedToNonTuplePattern)) }
+fn apply_tuple_to_branch(program: Program, env: Env, patterns: Vec<TuplePattern>, body: Expression, values: Vec<Value>) -> Result<(Program, Env, Value), Error> {
+    let (program, env) = bind_tuple_to_tuple_pattern(program, env, patterns, values)?;
+    eval(program, env, body)
+}
+fn bind_tuple_to_tuple_pattern(mut program: Program, mut env: Env, patterns: Vec<TuplePattern>, values: Vec<Value>) -> Result<(Program, Env), Error> {
+    if patterns.len() != values.len() {
+        return Err(Error::InvalidPatternMatch(PatternMatchErrror::TupleSizesDidNotMatch))
     }
+    for (pattern, val) in patterns.into_iter().zip(values) {
+        match pattern {
+            TuplePattern::Variable(var) => {
+                env = env.extend(var, val);
+            },
+            TuplePattern::Tuple(patterns) => {
+                match val {
+                    Value::Tuple(values) => {
+                        let (program0, env0) = bind_tuple_to_tuple_pattern(program, env, patterns, values)?;
+                        program = program0;
+                        env = env0;
+                    },
+                    _ => return Err(Error::InvalidPatternMatch(PatternMatchErrror::AttemptToMatchNonTupleToTuplePattern)),
+                }
+            },
+        }
+    }
+    Ok((program, env))
 }
 
 fn apply_function(program: Program, fn_name: FunctionName, arg_values: Vec<Value>) -> Result<(Program, Value), Error> {

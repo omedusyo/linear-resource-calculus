@@ -208,14 +208,14 @@ pub fn parse_linear_var_bindings(input: TokenStream) -> IResult0<LinearBindings>
 }
 
 pub fn parse_cartesian_branch(input: TokenStream) -> IResult0<CartesianPatternBranch> {
-    let (input, pattern) = parse_pattern(input)?;
+    let (input, pattern) = parse_pattern(Mode::Cartesian)(input)?;
     let (input, _) = token(TokenType::BindingSeparator)(input)?;
     let (input, body) = parse_cartesian_expression(input)?;
 
     Ok((input, CartesianPatternBranch { pattern, body }))
 }
 pub fn parse_linear_branch(input: TokenStream) -> IResult0<LinearPatternBranch> {
-    let (input, pattern) = parse_pattern(input)?;
+    let (input, pattern) = parse_pattern(Mode::Linear)(input)?;
     let (input, _) = token(TokenType::BindingSeparator)(input)?;
     let (input, body) = parse_linear_expression(input)?;
 
@@ -229,63 +229,55 @@ pub fn parse_linear_branches(input: TokenStream) -> IResult0<Vec<LinearPatternBr
     delimited_vector(parse_linear_branch, token(TokenType::OrSeparator))(input)
 }
 
-fn parse_pattern_sequence(input: TokenStream) -> IResult0<Vec<Pattern>> {
-    delimited_vector(parse_pattern, token(TokenType::Comma))(input)
-}
-fn parse_pattern(input: TokenStream) -> IResult0<Pattern> {
-    let (input, token0) = anytoken(input)?;
-    use Token::*;
-    match token0 {
-        TagSymbol => {
-            // Tag pattern
-            let (input, var_name) = anyidentifier(input)?;
-            let (input, pattern) = parse_pattern(input)?;
-            Ok((input, Pattern::Tagged(Tag::new(var_name), Box::new(pattern))))
-        },
-        OpenParen => {
-            // Tuple pattern
-            let (input, patterns) = parse_pattern_sequence(input)?;
-            let (input, _) = token(TokenType::CloseParen)(input)?;
-            Ok((input, Pattern::Tuple(patterns)))
-        },
-        Identifier(var_name) => Ok((input, Pattern::Variable(VariableName::new(var_name)))),
-        _ => Err(nom::Err::Error(nom::error::Error { input: input.input, code: nom::error::ErrorKind::Alt })),
+fn parse_pattern(mode: Mode) -> impl FnOnce(TokenStream) -> IResult0<Pattern> {
+    move |input: TokenStream| {
+        let (input, token0) = anytoken(input)?;
+        use Token::*;
+        match token0 {
+            TagSymbol => {
+                // Tag pattern
+                let (input, var_name) = anyidentifier(input)?;
+                let (input, pattern) = parse_pattern(mode)(input)?;
+                Ok((input, Pattern::Tagged(Tag::new(var_name), Box::new(pattern))))
+            },
+            OpenParen if matches!(mode, Mode::Cartesian) => {
+                // Tuple pattern
+                let (input, patterns) = parse_tuple_pattern_sequence(mode)(input)?;
+                let (input, _) = token(TokenType::CloseParen)(input)?;
+                Ok((input, Pattern::Tuple(patterns)))
+            },
+            OpenBracket if matches!(mode, Mode::Linear) => {
+                // Tuple pattern
+                let (input, patterns) = parse_tuple_pattern_sequence(mode)(input)?;
+                let (input, _) = token(TokenType::CloseBracket)(input)?;
+                Ok((input, Pattern::Tuple(patterns)))
+            },
+            Identifier(var_name) => Ok((input, Pattern::Variable(VariableName::new(var_name)))),
+            _ => Err(nom::Err::Error(nom::error::Error { input: input.input, code: nom::error::ErrorKind::Alt })),
+        }
     }
 }
-
-// This is a special case where the patterns are all nested tuple patterns.
-fn parse_deep_cartesian_tuple_pattern_sequence(input: TokenStream) -> IResult0<Vec<Pattern>> {
-    delimited_vector(parse_deep_cartesian_tuple_pattern, token(TokenType::Comma))(input)
+fn parse_tuple_pattern_sequence(mode: Mode) -> impl FnOnce(TokenStream) -> IResult0<Vec<TuplePattern>> {
+    delimited_vector(move |input: TokenStream| parse_tuple_pattern(mode)(input), token(TokenType::Comma))
 }
-fn parse_deep_cartesian_tuple_pattern(input: TokenStream) -> IResult0<Pattern> {
-    let (input, token0) = anytoken(input)?;
-    use Token::*;
-    match token0 {
-        OpenParen => {
-            let (input, patterns) = parse_deep_cartesian_tuple_pattern_sequence(input)?;
-            let (input, _) = token(TokenType::CloseParen)(input)?;
-            Ok((input, Pattern::Tuple(patterns)))
-        },
-        Identifier(var_name) => Ok((input, Pattern::Variable(VariableName::new(var_name)))),
-        _ => Err(nom::Err::Error(nom::error::Error { input: input.input, code: nom::error::ErrorKind::Alt })),
-    }
-}
-
-// This is a special case where the patterns are all nested tuple patterns.
-fn parse_deep_linear_tuple_pattern_sequence(input: TokenStream) -> IResult0<Vec<Pattern>> {
-    delimited_vector(parse_deep_linear_tuple_pattern, token(TokenType::Comma))(input)
-}
-fn parse_deep_linear_tuple_pattern(input: TokenStream) -> IResult0<Pattern> {
-    let (input, token0) = anytoken(input)?;
-    use Token::*;
-    match token0 {
-        OpenBracket => {
-            let (input, patterns) = parse_deep_linear_tuple_pattern_sequence(input)?;
-            let (input, _) = token(TokenType::CloseBracket)(input)?;
-            Ok((input, Pattern::Tuple(patterns)))
-        },
-        Identifier(var_name) => Ok((input, Pattern::Variable(VariableName::new(var_name)))),
-        _ => Err(nom::Err::Error(nom::error::Error { input: input.input, code: nom::error::ErrorKind::Alt })),
+fn parse_tuple_pattern(mode: Mode) -> impl FnOnce(TokenStream) -> IResult0<TuplePattern> {
+    move |input: TokenStream| {
+        let (input, token0) = anytoken(input)?;
+        use Token::*;
+        match token0 {
+            OpenParen if matches!(mode, Mode::Cartesian) => {
+                let (input, patterns) = parse_tuple_pattern_sequence(mode)(input)?;
+                let (input, _) = token(TokenType::CloseParen)(input)?;
+                Ok((input, TuplePattern::Tuple(patterns)))
+            },
+            OpenBracket if matches!(mode, Mode::Linear) => {
+                let (input, patterns) = parse_tuple_pattern_sequence(mode)(input)?;
+                let (input, _) = token(TokenType::CloseBracket)(input)?;
+                Ok((input, TuplePattern::Tuple(patterns)))
+            },
+            Identifier(var_name) => Ok((input, TuplePattern::Variable(VariableName::new(var_name)))),
+            _ => Err(nom::Err::Error(nom::error::Error { input: input.input, code: nom::error::ErrorKind::Alt })),
+        }
     }
 }
 
@@ -348,7 +340,7 @@ pub fn parse_cartesian_expression(input: TokenStream) -> IResult0<CartesianExpre
                             Ok((input, CartesianExpression::let_(arg, var, body)))
                         },
                         Token::OpenParen => { // we don't commit the paren `(`
-                            let (input, tuple_pattern) = parse_deep_cartesian_tuple_pattern(input)?;
+                            let (input, tuple_pattern) = parse_pattern(Mode::Cartesian)(input)?;
                             let (input, _) = token(TokenType::Eq)(input)?;
                             let (input, arg) = parse_cartesian_expression(input)?;
                             let (input, _) = token(TokenType::BindingSeparator)(input)?;
@@ -479,7 +471,7 @@ pub fn parse_linear_expression(input: TokenStream) -> IResult0<LinearExpression>
                             Ok((input, LinearExpression::let_move(arg, var, body)))
                         },
                         Token::OpenBracket => { // we don't commit the bracket `[`
-                            let (input, tuple_pattern) = parse_deep_linear_tuple_pattern(input)?;
+                            let (input, tuple_pattern) = parse_pattern(Mode::Linear)(input)?;
                             let (input, _) = token(TokenType::Eq)(input)?;
                             let (input, arg) = parse_linear_expression(input)?;
                             let (input, _) = token(TokenType::BindingSeparator)(input)?;
@@ -543,7 +535,6 @@ pub fn parse_linear_expression(input: TokenStream) -> IResult0<LinearExpression>
                         let (input, token_match) = peek_token(TokenType::OpenParen)(input)?;
                         match token_match {
                             Some(_) => {
-                                println!("yooo");
                                 // Here we have a function call
                                 let (input, _) = token(TokenType::OpenParen)(input)?;
                                 let (input, cartesian_arguments) = cartesian_expression_vector(input)?;
@@ -799,7 +790,13 @@ pub struct LinearPatternBranch {
 pub enum Pattern {
     Variable(VariableName),
     Tagged(Tag, Box<Pattern>),
-    Tuple(Vec<Pattern>),
+    Tuple(Vec<TuplePattern>),
+}
+
+#[derive(Debug, Clone)]
+pub enum TuplePattern {
+    Variable(VariableName),
+    Tuple(Vec<TuplePattern>),
 }
 
 // ===Values===
@@ -1063,6 +1060,7 @@ pub enum PatternMatchErrror {
     TupleSizesDidNotMatch,
     TupleMatchedAgainstMatchExpressionWithMultipleBranches,
     AttemptToMatchNonInductiveValue,
+    AttemptToMatchNonTupleToTuplePattern,
 }
 
 // ===Evaluation===
@@ -1130,7 +1128,7 @@ fn cartesian_eval(program: &Program, env: &CartesianEnv, e: &CartesianExpression
         },
         Match { arg, branches } => {
             let arg_value = cartesian_eval(program, env, arg)?;
-            cartesian_apply_msg_to_branches(program, env, branches, &arg_value)
+            cartesian_apply_msg_to_branches(program, env, branches, arg_value)
         },
         VarLookup(var_name) => env.get(var_name.clone()),
         Let { arg, var, body } => {
@@ -1146,7 +1144,7 @@ fn cartesian_eval(program: &Program, env: &CartesianEnv, e: &CartesianExpression
             match obj {
                 CartesianValue::ClosureObject { captured_cartesian_env: captured_env, branches } => {
                     let msg = cartesian_eval(program, env, e1)?;
-                    cartesian_apply_msg_to_branches(program, &captured_env, &branches, &msg)
+                    cartesian_apply_msg_to_branches(program, &captured_env, &branches, msg)
                 },
                 obj => Err(Error::AttemptToSendMessageToNonObject(Value::Cartesian(obj))),
             }
@@ -1356,54 +1354,78 @@ fn linear_apply_function(program: &Program, fn_def: LinearFunctionDefinition, ca
 
 // ===Send Message===
 // ==Cartesian==
-type CartesianPatternMatchResult = Option<Vec<(VariableName, CartesianValue)>>;
-
-// TODO: Move this into the message  sending function.
-impl Pattern {
-    fn match_(&self, val: &CartesianValue) -> CartesianPatternMatchResult {
-        fn loop_(pattern: &Pattern, val: &CartesianValue, mut bindings: Vec<(VariableName, CartesianValue)>) -> CartesianPatternMatchResult {
-            use Pattern::*;
-            match (pattern, val) {
-                (Variable(var), val) => {
-                    bindings.push((var.clone(), val.clone()));
-                    Some(bindings)
-                },
-                (Tagged(tag0, pattern), CartesianValue::Tagged(tag1, val)) => {
-                    if tag0 == tag1 {
-                        loop_(pattern, val, bindings)
-                    } else {
-                        None
-                    }
-                },
-                (Tuple(patterns), CartesianValue::Tuple(values)) => {
-                    if patterns.len() == values.len() {
-                        for (i, val) in values.into_iter().enumerate() {
-                            bindings = loop_(&patterns[i], val, bindings)?
-                        }
-                        Some(bindings)
-                    } else {
-                        None
-                    }
-                },
-                _ => None
-            }
+fn cartesian_apply_msg_to_branches(program: &Program, env: &CartesianEnv, branches: &[CartesianPatternBranch], val: CartesianValue) -> Result<CartesianValue, Error> {
+    if branches.len() == 0 { return Err(Error::UnableToFindMatchingPattern) }
+    if branches.len() == 1 && matches!(branches[0].pattern, Pattern::Variable(_)) { // non-destructive read
+        let CartesianPatternBranch { pattern, body } =  branches.into_iter().next().unwrap();
+        match pattern {
+            Pattern::Variable(var) => {
+                let env = env.clone().extend(var.clone(), val.clone());
+                return cartesian_eval(program, &env, body)
+            },
+            _ => unreachable!(),
         }
-
-        loop_(self, val, vec![])
+    }
+    match val {
+        CartesianValue::Tagged(tag0, val) => {
+            let mut filtered_branches: Vec<CartesianPatternBranch> = vec![];
+            for CartesianPatternBranch { pattern, body } in branches {
+                match pattern {
+                    Pattern::Tagged(tag, pattern) => {
+                        if tag == &tag0 {
+                            filtered_branches.push(CartesianPatternBranch { pattern: *pattern.clone(), body: body.clone() });
+                        }
+                    },
+                    _ => return Err(Error::InvalidPatternMatch(PatternMatchErrror::TaggedValueFedToNonTaggedPattern))
+                }
+            }
+            cartesian_apply_msg_to_branches(program, env, &filtered_branches, *val)
+        },
+        CartesianValue::Tuple(values) => {
+            if branches.len() == 1 {
+                let branch = branches.into_iter().next().unwrap();
+                match &branch.pattern {
+                    Pattern::Tuple(patterns) => 
+                        apply_cartesian_tuple_to_branch(program, env, &patterns[..], &branch.body, values),
+                    _ => return Err(Error::InvalidPatternMatch(PatternMatchErrror::TupleFedToNonTuplePattern)),
+                }
+            } else {
+                Err(Error::InvalidPatternMatch(PatternMatchErrror::TupleMatchedAgainstMatchExpressionWithMultipleBranches))
+            }
+        },
+        _ => {
+            // The only pattern that could match this is MatchAll (i.e. a variable).
+            // In which case we would have already matched this. This means that we have an error
+            // here, e.g. someone fed an object into a match case that's not a match-all.
+            return Err(Error::InvalidPatternMatch(PatternMatchErrror::AttemptToMatchNonInductiveValue))
+        },
     }
 }
-
-fn cartesian_apply_msg_to_branches(program: &Program, env: &CartesianEnv, branches: &[CartesianPatternBranch], val: &CartesianValue) -> Result<CartesianValue, Error> {
-    for branch in branches {
-        match branch.pattern.match_(val) {
-            Some(bindings) => {
-                let env = env.clone().extend_many(bindings.into_iter());
-                return cartesian_eval(program, &env, &branch.body)
+fn apply_cartesian_tuple_to_branch(program: &Program, env: &CartesianEnv, patterns: &[TuplePattern], body: &CartesianExpression, values: Vec<CartesianValue>) -> Result<CartesianValue, Error> {
+    let env = bind_cartesian_tuple_to_tuple_pattern(program, env, patterns, values)?;
+    cartesian_eval(program, &env, body)
+}
+fn bind_cartesian_tuple_to_tuple_pattern(program: &Program, env: &CartesianEnv, patterns: &[TuplePattern], values: Vec<CartesianValue>) -> Result<CartesianEnv, Error> {
+    if patterns.len() != values.len() {
+        return Err(Error::InvalidPatternMatch(PatternMatchErrror::TupleSizesDidNotMatch))
+    }
+    let mut env = env.clone();
+    for (pattern, val) in patterns.into_iter().zip(values) {
+        match pattern {
+            TuplePattern::Variable(var) => {
+                env = env.extend(var.clone(), val.clone());
             },
-            None => {},
+            TuplePattern::Tuple(patterns) => {
+                match val {
+                    CartesianValue::Tuple(values) => {
+                        env = bind_cartesian_tuple_to_tuple_pattern(program, &env, patterns, values)?;
+                    },
+                    _ => return Err(Error::InvalidPatternMatch(PatternMatchErrror::AttemptToMatchNonTupleToTuplePattern)),
+                }
+            },
         }
     }
-    Err(Error::UnableToFindMatchingPattern)
+    Ok(env)
 }
 
 // ==Linear==
@@ -1436,30 +1458,14 @@ fn linear_apply_msg_to_branches(program: &Program, cartesian_env: &CartesianEnv,
             linear_apply_msg_to_branches(program, cartesian_env, env, filtered_branches, *val)
         },
         LinearValue::Tuple(values) => {
-            // We require in this case that we have exactly one branch that destructures the tuple,
-            // and that the patterns are match-all variables
             if branches.len() == 1 {
-                let LinearPatternBranch { pattern, body } =  branches.into_iter().next().unwrap();
-                match pattern {
-                    Pattern::Tuple(patterns) => {
-                        if patterns.len() != values.len() {
-                            return Err(Error::InvalidPatternMatch(PatternMatchErrror::TupleSizesDidNotMatch))
-                        }
-                        let mut env = env;
-                        for (pattern, val) in patterns.into_iter().zip(values) {
-                            match pattern {
-                                Pattern::Variable(var) => {
-                                    env = env.extend(var, val);
-                                },
-                                _ => return Err(Error::InvalidPatternMatch(PatternMatchErrror::TupleFedToNonTuplePattern))
-                            }
-                        }
-                        return linear_eval(program, cartesian_env, env, body)
-                    },
-                    _ => return Err(Error::InvalidPatternMatch(PatternMatchErrror::TupleFedToNonTuplePattern))
+                let branch = branches.into_iter().next().unwrap();
+                match branch.pattern {
+                    Pattern::Tuple(patterns) => apply_linear_tuple_to_branch(program, cartesian_env, env, patterns, branch.body, values),
+                    _ => return Err(Error::InvalidPatternMatch(PatternMatchErrror::TupleFedToNonTuplePattern)),
                 }
             } else {
-                return Err(Error::InvalidPatternMatch(PatternMatchErrror::TupleMatchedAgainstMatchExpressionWithMultipleBranches))
+                Err(Error::InvalidPatternMatch(PatternMatchErrror::TupleMatchedAgainstMatchExpressionWithMultipleBranches))
             }
         },
         _ => {
@@ -1469,4 +1475,29 @@ fn linear_apply_msg_to_branches(program: &Program, cartesian_env: &CartesianEnv,
             return Err(Error::InvalidPatternMatch(PatternMatchErrror::AttemptToMatchNonInductiveValue))
         },
     }
+}
+fn apply_linear_tuple_to_branch(program: &Program, cartesian_env: &CartesianEnv, env: LinearEnv, patterns: Vec<TuplePattern>, body: LinearExpression, values: Vec<LinearValue>) -> Result<(LinearEnv, LinearValue), Error> {
+    let env = bind_linear_tuple_to_tuple_pattern(program, cartesian_env, env, patterns, values)?;
+    linear_eval(program, cartesian_env, env, body)
+}
+fn bind_linear_tuple_to_tuple_pattern(program: &Program, cartesian_env: &CartesianEnv, mut env: LinearEnv, patterns: Vec<TuplePattern>, values: Vec<LinearValue>) -> Result<LinearEnv, Error> {
+    if patterns.len() != values.len() {
+        return Err(Error::InvalidPatternMatch(PatternMatchErrror::TupleSizesDidNotMatch))
+    }
+    for (pattern, val) in patterns.into_iter().zip(values) {
+        match pattern {
+            TuplePattern::Variable(var) => {
+                env = env.extend(var, val);
+            },
+            TuplePattern::Tuple(patterns) => {
+                match val {
+                    LinearValue::Tuple(values) => {
+                        env = bind_linear_tuple_to_tuple_pattern(program, cartesian_env, env, patterns, values)?;
+                    },
+                    _ => return Err(Error::InvalidPatternMatch(PatternMatchErrror::AttemptToMatchNonTupleToTuplePattern)),
+                }
+            },
+        }
+    }
+    Ok(env)
 }
