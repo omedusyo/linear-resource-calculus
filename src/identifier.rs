@@ -1,7 +1,7 @@
 use std::rc::Rc;
 use std::fmt;
 use crate::{TokenStream, IResult0};
-use crate::tokenizer::anyidentifier;
+use crate::syntax::anyidentifier;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct VariableName(Rc<String>);

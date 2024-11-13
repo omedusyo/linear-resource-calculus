@@ -1,6 +1,7 @@
 mod interpreter;
 mod repl;
 mod tokenizer;
+mod syntax;
 mod identifier;
 mod calculi;
 

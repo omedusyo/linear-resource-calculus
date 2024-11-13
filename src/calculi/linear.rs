@@ -1,5 +1,6 @@
 use std::fmt;
-use crate::tokenizer::{TokenStream, Token, TokenType, anyidentifier, anytoken, identifier, token, peek_anytoken, peek_token, vector, delimited_nonempty_vector, delimited_vector};
+use crate::tokenizer::{TokenStream, Token, TokenType};
+use crate::syntax::{anyidentifier, anytoken, identifier, token, peek_anytoken, peek_token, vector, delimited_nonempty_vector, delimited_vector};
 use crate::identifier::{VariableName, FunctionName, Tag, variable_name};
 use crate::IResult0;
 use std::collections::HashMap;
