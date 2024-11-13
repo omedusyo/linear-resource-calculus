@@ -19,7 +19,9 @@ pub enum Token {
     Comma,
     OrSeparator,
     VarLookupSymbol,
-    VarUseSymbol,
+    VarMoveSymbol,
+    VarCloneSymbol,
+    VarDropSymbol,
     TagSymbol,
     Int(i32),
     End,
@@ -39,7 +41,9 @@ pub enum TokenType {
     Comma,
     OrSeparator,
     VarLookupSymbol,
-    VarUseSymbol,
+    VarMoveSymbol,
+    VarCloneSymbol,
+    VarDropSymbol,
     TagSymbol,
     Int,
     End,
@@ -61,7 +65,9 @@ impl Token {
             Comma => TokenType::Comma,
             OrSeparator => TokenType::OrSeparator,
             VarLookupSymbol => TokenType::VarLookupSymbol,
-            VarUseSymbol => TokenType::VarUseSymbol,
+            VarMoveSymbol => TokenType::VarMoveSymbol,
+            VarCloneSymbol => TokenType::VarCloneSymbol,
+            VarDropSymbol => TokenType::VarDropSymbol,
             TagSymbol => TokenType::TagSymbol,
             Int(_) => TokenType::Int,
             End => TokenType::End,
@@ -167,7 +173,7 @@ pub fn parse_token(input: &str) -> IResult<&str, Token> {
         '%' => {
             let (input, _) = anychar(input)?;
             // Note how there's no consumption of whitespace.
-            Ok((input, Token::VarUseSymbol))
+            Ok((input, Token::VarMoveSymbol))
         },
         '#' => {
             let (input, _) = anychar(input)?;
@@ -202,9 +208,15 @@ pub fn parse_token(input: &str) -> IResult<&str, Token> {
             }
         },
         _ => {
-            // We assume we are looking at identifier.
             let (input, str) = parse_identifier(input)?;
-            Ok((input, Token::Identifier(str)))
+            match &str[..] {
+                "read" => Ok((input, Token::VarLookupSymbol)),
+                "move" => Ok((input, Token::VarMoveSymbol)),
+                "clone" => Ok((input, Token::VarCloneSymbol)),
+                "drop" => Ok((input, Token::VarDropSymbol)),
+                // We assume we are looking at identifier.
+                _ => Ok((input, Token::Identifier(str))),
+            }
         },
     }
 }

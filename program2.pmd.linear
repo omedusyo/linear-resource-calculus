@@ -76,11 +76,31 @@ fn range-iter[n, i] {
   }
 }}}
 
+fn range-iter-simpler[n, i] { 
+  match ==[clone n, clone i] {
+    #T[] .
+      drop n .
+      drop i .
+      #nil[]
+  | #F[] . #cons[clone i, range-iter-simpler[%n, +[%i, 1]]]
+  }
+}
+
 fn fib[x, y] { obj { x = %x, y = %y .
    #next[] .
-   match dup[%x] { [x0, x] .
-   match dup[%y] { [y0, y] .
-     [%x,  fib[%y, +[%x0, %y0]]]
-   }}
+   [clone x,  fib[clone y, +[%x, %y]]]
+}}
+
+fn observe-stream[stream, n] { observe-stream-loop[%stream, 0, %n] }
+
+fn observe-stream-loop[stream, i, n] { match ==[clone i, clone n] {
+  #T[] .
+    drop i .
+    drop n .
+    #cont[%stream]
+| #F[] .
+    let { [x, stream] = send[%stream, #next[]] .
+      #cons[%x, observe-stream-loop[%stream, +[%i, 1], %n]]
+    }
 }}
 

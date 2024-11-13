@@ -11,7 +11,7 @@ fn identifier_to_operation_code(str: &str) -> Option<OperationCode> {
         "*" => Some(OperationCode::Mul),
         "sub" => Some(OperationCode::Sub),
         "==" => Some(OperationCode::Eq),
-        "dup" => Some(OperationCode::Duplicate),
+        "dup" => Some(OperationCode::Clone),
         "discard" => Some(OperationCode::Discard),
         _ => None
     }
@@ -36,7 +36,7 @@ fn parse_operator_arguments(op_code: OperationCode, input: TokenStream) -> IResu
             let (input, (e0, e1)) = parse_arg_list2(input)?;
             Ok((input, Expression::operation_application2(op_code, e0, e1)))
         },
-        Duplicate => {
+        Clone => {
             let (input, e0) = parse_arg_list1(input)?;
             Ok((input, Expression::operation_application1(op_code, e0)))
         },
@@ -125,6 +125,25 @@ fn parse_pattern(input: TokenStream) -> IResult0<Pattern> {
     }
 }
 
+// This is a special case where the patterns are all nested tuple patterns.
+fn parse_deep_tuple_pattern_sequence(input: TokenStream) -> IResult0<Vec<Pattern>> {
+    delimited_vector(parse_deep_tuple_pattern, token(TokenType::Comma))(input)
+}
+
+fn parse_deep_tuple_pattern(input: TokenStream) -> IResult0<Pattern> {
+    let (input, token0) = anytoken(input)?;
+    use Token::*;
+    match token0 {
+        OpenBracket => {
+            let (input, patterns) = parse_deep_tuple_pattern_sequence(input)?;
+            let (input, _) = token(TokenType::CloseBracket)(input)?;
+            Ok((input, Pattern::Tuple(patterns)))
+        },
+        Identifier(var_name) => Ok((input, Pattern::Variable(VariableName::new(var_name)))),
+        _ => Err(nom::Err::Error(nom::error::Error { input: input.input, code: nom::error::ErrorKind::Alt })),
+    }
+}
+
 pub fn parse_branch(input: TokenStream) -> IResult0<PatternBranch> {
     let (input, pattern) = parse_pattern(input)?;
     let (input, _) = token(TokenType::BindingSeparator)(input)?;
@@ -161,9 +180,24 @@ pub fn parse_expression(input: TokenStream) -> IResult0<Expression> {
     use Token::*;
     match token0 {
         Int(x) => Ok((input, Expression::int(x))),
-        VarUseSymbol => {
+        VarMoveSymbol => {
+            // move x
+            // %x
             let (input, var_name) = anyidentifier(input)?;
-            Ok((input, Expression::var_use(VariableName::new(var_name))))
+            Ok((input, Expression::var_move(VariableName::new(var_name))))
+        },
+        VarCloneSymbol => {
+            // clone x
+            let (input, var_name) = anyidentifier(input)?;
+            Ok((input, Expression::var_clone(VariableName::new(var_name))))
+        },
+        VarDropSymbol => {
+            // drop x . expr
+            // Note that `drop x` by itself doesn't make any sense. You have to atlesat do `drop x . []`
+            let (input, var_name) = anyidentifier(input)?;
+            let (input, _) = token(TokenType::BindingSeparator)(input)?;
+            let (input, expr) = parse_expression(input)?;
+            Ok((input, Expression::var_drop(VariableName::new(var_name), expr)))
         },
         TagSymbol => {
             let (input, tag) = anyidentifier(input)?;
@@ -182,15 +216,42 @@ pub fn parse_expression(input: TokenStream) -> IResult0<Expression> {
         Identifier(identifier) => {
             match &identifier[..] {
                 "let" => {
-                    // let { x = 5 . body }
+                    // Basic let binding
+                    //   let { a = 5 . body }
+                    // The following is just syntactic sugar for `match [1, 2] { [a, b] = body }
+                    //   let { [a, b] = [1, 2] . body } 
                     let (input, _) = token(TokenType::OpenCurly)(input)?;
-                    let (input, (var_name, arg)) = parse_var_binding(input)?;
-                    let (input, _) = token(TokenType::BindingSeparator)(input)?;
+                    // Check if this is a tuple pattern or identifier.
+                    let (input_if_commited, token0) = anytoken(input)?;
+                    match token0 {
+                        Token::Identifier(identifier) => { // we commit the identifier
+                            let var = VariableName::new(identifier);
+                            let (input, _) = token(TokenType::Eq)(input_if_commited)?;
+                            let (input, arg) = parse_expression(input)?;
 
-                    let (input, body) = parse_expression(input)?;
-                    let (input, _) = token(TokenType::CloseCurly)(input)?;
+                            let (input, _) = token(TokenType::BindingSeparator)(input)?;
 
-                    Ok((input, Expression::let_(arg, var_name, body)))
+                            let (input, body) = parse_expression(input)?;
+                            let (input, _) = token(TokenType::CloseCurly)(input)?;
+
+                            Ok((input, Expression::let_move(arg, var, body)))
+                        },
+                        Token::OpenBracket => { // we don't commit the bracket `[`
+                            let (input, tuple_pattern) = parse_deep_tuple_pattern(input)?;
+                            let (input, _) = token(TokenType::Eq)(input)?;
+                            let (input, arg) = parse_expression(input)?;
+                            let (input, _) = token(TokenType::BindingSeparator)(input)?;
+
+                            let (input, body) = parse_expression(input)?;
+                            let (input, _) = token(TokenType::CloseCurly)(input)?;
+                            // match arg { tuple_pattern . body }
+                            Ok((input, Expression::match_(arg, vec![PatternBranch { pattern: tuple_pattern, body }])))
+                        },
+                        _ => {
+                            // TODO: This is an error
+                            todo!()
+                        }
+                    }
                 },
                 "match" => {
                     let (input, arg) = parse_expression(input)?;
@@ -311,8 +372,10 @@ pub enum Expression0 {
     Tagged(Tag, Expression),
     Tuple(Vec<Expression>),
     Match { arg: Expression, branches: Vec<PatternBranch> },
-    VarUse(VariableName),
-    Let { arg: Expression, var: VariableName, body: Expression },
+    VarMove(VariableName),
+    VarClone(VariableName),
+    VarDrop(VariableName, Expression),
+    LetMove { arg: Expression, var: VariableName, body: Expression },
     // Here I was forced to include an explicit list of moved bindings.
     // This will also require an extension in syntax.
     Object { captured_bindings: Bindings, branches: Vec<PatternBranch> },
@@ -325,7 +388,7 @@ pub enum OperationCode {
     Sub,
     Mul,
     Eq,
-    Duplicate,
+    Clone,
     Discard,
 }
 
@@ -365,8 +428,10 @@ impl Expression {
     fn tagged(tag: Tag, e: Expression) -> Self { Self(Box::new(Expression0::Tagged(tag, e))) }
     fn tuple(args: Vec<Expression>) -> Self { Self(Box::new(Expression0::Tuple(args))) }
     fn match_(arg: Self, branches: Vec<PatternBranch>) -> Self { Self(Box::new(Expression0::Match { arg, branches })) }
-    fn var_use(var: VariableName) -> Self { Self(Box::new(Expression0::VarUse(var))) }
-    fn let_(arg: Self, var: VariableName, body: Self) -> Self { Self(Box::new(Expression0::Let { arg, var, body })) }
+    fn var_move(var: VariableName) -> Self { Self(Box::new(Expression0::VarMove(var))) }
+    fn var_clone(var: VariableName) -> Self { Self(Box::new(Expression0::VarClone(var))) }
+    fn var_drop(var: VariableName, expr: Expression) -> Self { Self(Box::new(Expression0::VarDrop(var, expr))) }
+    fn let_move(arg: Self, var: VariableName, body: Self) -> Self { Self(Box::new(Expression0::LetMove { arg, var, body })) }
     fn object(moved_env: Bindings, branches: Vec<PatternBranch>) -> Self { Self(Box::new(Expression0::Object { captured_bindings: moved_env, branches })) }
     fn send(obj: Self, msg: Self) -> Self { Self(Box::new(Expression0::Send(obj, msg))) }
 }
@@ -465,7 +530,7 @@ impl Env {
     }
 
     // Very different from the cartesian case.
-    fn use_(self, var_name: VariableName) -> Result<(Value, Self), Error> {
+    fn move_(self, var_name: VariableName) -> Result<(Value, Self), Error> {
         use Env0::*;
         match *self.0 {
             Empty => Err(Error::VariableLookupFailure(var_name)),
@@ -473,9 +538,39 @@ impl Env {
                 if var == var_name {
                     Ok((value, parent))
                 } else {
-                    let (value0, parent) = parent.use_(var_name)?;
-                    // TODO: Would be nice to reuse the old env
+                    let (value0, parent) = parent.move_(var_name)?;
                     Ok((value0, Env(Box::new(Push { var, value, parent }))))
+                }
+            },
+        }
+    }
+        
+    fn clone_(self, var_name: VariableName) -> Result<(Value, Self), Error> {
+        use Env0::*;
+        match *self.0 {
+            Empty => Err(Error::VariableLookupFailure(var_name)),
+            Push { var, value, parent } => {
+                if var == var_name {
+                    let (value0, value1) = value.duplicate();
+                    Ok((value0, Env(Box::new(Push { var, value: value1, parent }))))
+                } else {
+                    let (value0, parent) = parent.clone_(var_name)?;
+                    Ok((value0, Env(Box::new(Push { var, value, parent }))))
+                }
+            },
+        }
+    }
+
+    fn drop_(self, var_name: VariableName) -> Result<Self, Error> {
+        use Env0::*;
+        match *self.0 {
+            Empty => Err(Error::VariableLookupFailure(var_name)),
+            Push { var, value, parent } => {
+                if var == var_name {
+                    Ok(parent)
+                } else {
+                    let parent = parent.drop_(var_name)?;
+                    Ok(Env(Box::new(Push { var, value, parent })))
                 }
             },
         }
@@ -538,7 +633,7 @@ fn eval(program: Program, env: Env, e: Expression) -> Result<(Program, Env, Valu
                 program,
                 env,
                 match code {
-                    Duplicate => {
+                    Clone => {
                         let (v0, v1) = val0.duplicate();
                         Value::Tuple(vec![v0, v1])
                     },
@@ -568,7 +663,7 @@ fn eval(program: Program, env: Env, e: Expression) -> Result<(Program, Env, Valu
                             } else {
                                 Value::Tagged(Tag::new("F".to_string()), Box::new(Value::Tuple(vec![])))
                             },
-                            Discard | Duplicate => todo!()
+                            Discard | Clone => todo!()
                         }
                     ))
                 },
@@ -604,16 +699,26 @@ fn eval(program: Program, env: Env, e: Expression) -> Result<(Program, Env, Valu
             }
             Ok((program, env, Value::Tuple(values)))
         },
-        VarUse(var_name) => {
+        VarMove(var_name) => {
             // I need to take out the binding completely out of the environment
-            let (value, env) = env.use_(var_name)?;
+            let (value, env) = env.move_(var_name)?;
             Ok((program, env, value))
+        },
+        VarClone(var_name) => {
+            // This looks up the var in the environment, then attempts a clone.
+            let (value, env) = env.clone_(var_name)?;
+            Ok((program, env, value))
+        },
+        VarDrop(var_name, expr) => {
+            // This looks up the var in the environmeent, then attempts to drop the var.
+            let env = env.drop_(var_name)?;
+            eval(program, env, expr)
         },
         Match { arg, branches } => {
             let (program, env, arg_value) = eval(program, env, arg)?;
             apply_msg_to_branches(program, env, branches, arg_value)
         },
-        Let { arg, var, body } => {
+        LetMove { arg, var, body } => {
             let (program, env, arg_value) = eval(program, env, arg)?;
             let env = env.extend(var, arg_value);
             eval(program, env, body)
@@ -747,27 +852,9 @@ fn apply_msg_to_branches(program: Program, env: Env, branches: Vec<PatternBranch
         },
         Value::Tuple(values) => {
             // We require in this case that we have exactly one branch that destructures the tuple,
-            // and that the patterns are match-all variables
+            // and that the patterns are match-all variables or tuple-patterns
             if branches.len() == 1 {
-                let PatternBranch { pattern, body } =  branches.into_iter().next().unwrap();
-                match pattern {
-                    Pattern::Tuple(patterns) => {
-                        if patterns.len() != values.len() {
-                            return Err(Error::InvalidPatternMatch(PatternMatchErrror::TupleSizesDidNotMatch))
-                        }
-                        let mut env = env;
-                        for (pattern, val) in patterns.into_iter().zip(values) {
-                            match pattern {
-                                Pattern::Variable(var) => {
-                                    env = env.extend(var, val);
-                                },
-                                _ => return Err(Error::InvalidPatternMatch(PatternMatchErrror::TupleFedToNonTuplePattern))
-                            }
-                        }
-                        return eval(program, env, body)
-                    },
-                    _ => return Err(Error::InvalidPatternMatch(PatternMatchErrror::TupleFedToNonTuplePattern))
-                }
+                apply_tuple_to_branch(program, env, branches.into_iter().next().unwrap(), values)
             } else {
                 return Err(Error::InvalidPatternMatch(PatternMatchErrror::TupleMatchedAgainstMatchExpressionWithMultipleBranches))
             }
@@ -778,6 +865,26 @@ fn apply_msg_to_branches(program: Program, env: Env, branches: Vec<PatternBranch
             // here, e.g. someone fed an object into a match case that's not a match-all.
             return Err(Error::InvalidPatternMatch(PatternMatchErrror::AttemptToMatchNonInductiveValue))
         },
+    }
+}
+fn apply_tuple_to_branch(program: Program, env: Env, branch: PatternBranch, values: Vec<Value>) -> Result<(Program, Env, Value), Error> {
+    match branch.pattern {
+        Pattern::Tuple(patterns) => {
+            if patterns.len() != values.len() {
+                return Err(Error::InvalidPatternMatch(PatternMatchErrror::TupleSizesDidNotMatch))
+            }
+            let mut env = env;
+            for (pattern, val) in patterns.into_iter().zip(values) {
+                match pattern {
+                    Pattern::Variable(var) => {
+                        env = env.extend(var, val);
+                    },
+                    _ => { return Err(Error::InvalidPatternMatch(PatternMatchErrror::TupleFedToNonTuplePattern)) }
+                }
+            }
+            return eval(program, env, branch.body)
+        },
+        _ => { return Err(Error::InvalidPatternMatch(PatternMatchErrror::TupleFedToNonTuplePattern)) }
     }
 }
 

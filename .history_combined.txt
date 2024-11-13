@@ -17,3 +17,15 @@ lin let { x = 123 . %x }
 lin let-cart { x = 123 . $x }
 lin id()[5]
 lin pyth(3,4)[]
+cart let { x = 123 . read x }
+cart let { (x, y) = (123, 512) . read x }
+cart let { (x, y) = (123, 512) . read y }
+cart let { (x, y) = (123, 512) . ($y, $x, $x) }
+cart let { (x, y) = (123, 512) . $y }
+cart let { (x, y) = (123, 512) . ($y) }
+cart let { (x, y) = (123, 512) . $y }
+lin let { [x, y] = [123, 512] . [$y, $x] }
+lin let { [x, y] = [123, 512] . [%y, %x] }
+lin let { [x, [y, z]] = [123, [512, 32]] . [%y, %x] }
+lin let { [x, [y, z]] = [123, [512, 32]] . [%y, %x, %z] }
+lin [123, [512, 32]]

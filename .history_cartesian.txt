@@ -75,3 +75,5 @@ fn f(x) { $x }
 square(5)
 range-iter(5, 0)
 123
+let { foo = 123 . $foo }
+let { foo = 123 . read foo }

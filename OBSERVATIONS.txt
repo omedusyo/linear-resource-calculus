@@ -21,4 +21,12 @@
   each branch has to have the same type.
 * In the combined calculus, cartesian values can be thought of as linear values too.
   Interestingly it is trivial to discard/duplicate them. Those are very cheap operations.
-
+* In the Linear calculus, we have two basic ways of "using" a variable.
+  Actual use/move, which is `%x`, and attempted clone usage, which is `clone x`.
+  First one rips the binding of variable to value out of the environment, and moves it to the user.
+  We could read % as `move`. That's pretty neat. Maybe I should introduce that as a syntactic sugar `move x` or `take x`
+* Having multiple ways of using a variable... move, clone, drop,... note how e.g. clone introduces ordering issues.
+    // assumming left to right evaluation order
+    let { x = 123 . [clone x, %x] } // is fine
+    let { x = 123 . [%x, clone x] } // is not fine, it will crash
+  Now order of evaluation is important.

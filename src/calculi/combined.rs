@@ -253,6 +253,42 @@ fn parse_pattern(input: TokenStream) -> IResult0<Pattern> {
     }
 }
 
+// This is a special case where the patterns are all nested tuple patterns.
+fn parse_deep_cartesian_tuple_pattern_sequence(input: TokenStream) -> IResult0<Vec<Pattern>> {
+    delimited_vector(parse_deep_cartesian_tuple_pattern, token(TokenType::Comma))(input)
+}
+fn parse_deep_cartesian_tuple_pattern(input: TokenStream) -> IResult0<Pattern> {
+    let (input, token0) = anytoken(input)?;
+    use Token::*;
+    match token0 {
+        OpenParen => {
+            let (input, patterns) = parse_deep_cartesian_tuple_pattern_sequence(input)?;
+            let (input, _) = token(TokenType::CloseParen)(input)?;
+            Ok((input, Pattern::Tuple(patterns)))
+        },
+        Identifier(var_name) => Ok((input, Pattern::Variable(VariableName::new(var_name)))),
+        _ => Err(nom::Err::Error(nom::error::Error { input: input.input, code: nom::error::ErrorKind::Alt })),
+    }
+}
+
+// This is a special case where the patterns are all nested tuple patterns.
+fn parse_deep_linear_tuple_pattern_sequence(input: TokenStream) -> IResult0<Vec<Pattern>> {
+    delimited_vector(parse_deep_linear_tuple_pattern, token(TokenType::Comma))(input)
+}
+fn parse_deep_linear_tuple_pattern(input: TokenStream) -> IResult0<Pattern> {
+    let (input, token0) = anytoken(input)?;
+    use Token::*;
+    match token0 {
+        OpenBracket => {
+            let (input, patterns) = parse_deep_linear_tuple_pattern_sequence(input)?;
+            let (input, _) = token(TokenType::CloseBracket)(input)?;
+            Ok((input, Pattern::Tuple(patterns)))
+        },
+        Identifier(var_name) => Ok((input, Pattern::Variable(VariableName::new(var_name)))),
+        _ => Err(nom::Err::Error(nom::error::Error { input: input.input, code: nom::error::ErrorKind::Alt })),
+    }
+}
+
 pub fn parse_expression(input: TokenStream) -> IResult0<Expression> {
     let (input, mode) = parse_mode_keyword(input)?;
     match mode {
@@ -294,15 +330,39 @@ pub fn parse_cartesian_expression(input: TokenStream) -> IResult0<CartesianExpre
             match &identifier[..] {
                 "let" => {
                     // let { x = 5 . body }
+                    // let { (a, b) = (1, 2) . body } 
                     let (input, _) = token(TokenType::OpenCurly)(input)?;
-                    let (input, (var_name, arg)) = parse_cartesian_var_binding(input)?;
+                    // Check if this is a tuple pattern or identifier.
+                    let (input_if_commited, token0) = anytoken(input)?;
+                    match token0 {
+                        Token::Identifier(identifier) => { // we commit the identifier
+                            let var = VariableName::new(identifier);
+                            let (input, _) = token(TokenType::Eq)(input_if_commited)?;
+                            let (input, arg) = parse_cartesian_expression(input)?;
 
-                    let (input, _) = token(TokenType::BindingSeparator)(input)?;
+                            let (input, _) = token(TokenType::BindingSeparator)(input)?;
 
-                    let (input, body) = parse_cartesian_expression(input)?;
-                    let (input, _) = token(TokenType::CloseCurly)(input)?;
+                            let (input, body) = parse_cartesian_expression(input)?;
+                            let (input, _) = token(TokenType::CloseCurly)(input)?;
 
-                    Ok((input, CartesianExpression::let_(arg, var_name, body)))
+                            Ok((input, CartesianExpression::let_(arg, var, body)))
+                        },
+                        Token::OpenParen => { // we don't commit the paren `(`
+                            let (input, tuple_pattern) = parse_deep_cartesian_tuple_pattern(input)?;
+                            let (input, _) = token(TokenType::Eq)(input)?;
+                            let (input, arg) = parse_cartesian_expression(input)?;
+                            let (input, _) = token(TokenType::BindingSeparator)(input)?;
+
+                            let (input, body) = parse_cartesian_expression(input)?;
+                            let (input, _) = token(TokenType::CloseCurly)(input)?;
+                            // match arg { tuple_pattern . body }
+                            Ok((input, CartesianExpression::match_(arg, vec![CartesianPatternBranch { pattern: tuple_pattern, body }])))
+                        },
+                        _ => {
+                            // TODO: This is an error
+                            todo!()
+                        }
+                    }
                 },
                 "match" => {
                     let (input, arg) = parse_cartesian_expression(input)?;
@@ -362,9 +422,22 @@ pub fn parse_linear_expression(input: TokenStream) -> IResult0<LinearExpression>
     use Token::*;
     match token0 {
         Int(x) => Ok((input, LinearExpression::int(x))),
-        VarUseSymbol => {
+        VarMoveSymbol => {
             let (input, var_name) = anyidentifier(input)?;
-            Ok((input, LinearExpression::var_use(VariableName::new(var_name))))
+            Ok((input, LinearExpression::var_move(VariableName::new(var_name))))
+        },
+        VarCloneSymbol => {
+            // clone x
+            let (input, var_name) = anyidentifier(input)?;
+            Ok((input, LinearExpression::var_clone(VariableName::new(var_name))))
+        },
+        VarDropSymbol => {
+            // drop x . expr
+            // Note that `drop x` by itself doesn't make any sense. You have to atlesat do `drop x . []`
+            let (input, var_name) = anyidentifier(input)?;
+            let (input, _) = token(TokenType::BindingSeparator)(input)?;
+            let (input, expr) = parse_linear_expression(input)?;
+            Ok((input, LinearExpression::var_drop(VariableName::new(var_name), expr)))
         },
         VarLookupSymbol => {
             let (input, var_name) = anyidentifier(input)?;
@@ -388,14 +461,39 @@ pub fn parse_linear_expression(input: TokenStream) -> IResult0<LinearExpression>
             match &identifier[..] {
                 "let" => {
                     // let { a = 5 . body }
+                    // let { [a, b] = [1, 2] . body } 
                     let (input, _) = token(TokenType::OpenCurly)(input)?;
-                    let (input, (var_name, arg)) = parse_linear_var_binding(input)?;
-                    let (input, _) = token(TokenType::BindingSeparator)(input)?;
+                    // Check if this is a tuple pattern or identifier.
+                    let (input_if_commited, token0) = anytoken(input)?;
+                    match token0 {
+                        Token::Identifier(identifier) => { // we commit the identifier
+                            let var = VariableName::new(identifier);
+                            let (input, _) = token(TokenType::Eq)(input_if_commited)?;
+                            let (input, arg) = parse_linear_expression(input)?;
 
-                    let (input, body) = parse_linear_expression(input)?;
-                    let (input, _) = token(TokenType::CloseCurly)(input)?;
+                            let (input, _) = token(TokenType::BindingSeparator)(input)?;
 
-                    Ok((input, LinearExpression::let_(arg, var_name, body)))
+                            let (input, body) = parse_linear_expression(input)?;
+                            let (input, _) = token(TokenType::CloseCurly)(input)?;
+
+                            Ok((input, LinearExpression::let_move(arg, var, body)))
+                        },
+                        Token::OpenBracket => { // we don't commit the bracket `[`
+                            let (input, tuple_pattern) = parse_deep_linear_tuple_pattern(input)?;
+                            let (input, _) = token(TokenType::Eq)(input)?;
+                            let (input, arg) = parse_linear_expression(input)?;
+                            let (input, _) = token(TokenType::BindingSeparator)(input)?;
+
+                            let (input, body) = parse_linear_expression(input)?;
+                            let (input, _) = token(TokenType::CloseCurly)(input)?;
+                            // match arg { tuple_pattern . body }
+                            Ok((input, LinearExpression::match_(arg, vec![LinearPatternBranch { pattern: tuple_pattern, body }])))
+                        },
+                        _ => {
+                            // TODO: This is an error
+                            todo!()
+                        }
+                    }
                 },
                 "let-cart" => { // TODO: This syntax is a bit inconsistent... it should be atleast `let cart`
                     // let-cart { x = 5 . body }
@@ -639,10 +737,12 @@ pub enum LinearExpression0 {
     Tagged(Tag, LinearExpression),
     Tuple(Vec<LinearExpression>),
     Match { arg: LinearExpression, branches: Vec<LinearPatternBranch> },
+    VarMove(VariableName),
+    VarClone(VariableName),
+    VarDrop(VariableName, LinearExpression),
     VarLookup(VariableName), // TODO: This is very suspicious. It makes sense dynamically, but what
                              // does it mean on type level? Each cartesian value must also be a linear value.
-    VarUse(VariableName),
-    Let { arg: LinearExpression, var: VariableName, body: LinearExpression },
+    LetMove { arg: LinearExpression, var: VariableName, body: LinearExpression },
     // TODO: you have 
     //   let-cart { x = cartesian-expr . lin-body }
     // but you also need to unwrap the cartesian expression hiding as linear:
@@ -671,9 +771,11 @@ impl LinearExpression {
     fn tagged(tag: Tag, e: LinearExpression) -> Self { Self(Box::new(LinearExpression0::Tagged(tag, e))) }
     fn tuple(args: Vec<LinearExpression>) -> Self { Self(Box::new(LinearExpression0::Tuple(args))) }
     fn match_(arg: Self, branches: Vec<LinearPatternBranch>) -> Self { Self(Box::new(LinearExpression0::Match { arg, branches })) }
-    fn var_use(var: VariableName) -> Self { Self(Box::new(LinearExpression0::VarUse(var))) }
+    fn var_move(var: VariableName) -> Self { Self(Box::new(LinearExpression0::VarMove(var))) }
+    fn var_clone(var: VariableName) -> Self { Self(Box::new(LinearExpression0::VarClone(var))) }
+    fn var_drop(var: VariableName, expr: LinearExpression) -> Self { Self(Box::new(LinearExpression0::VarDrop(var, expr))) }
     fn var_lookup(var: VariableName) -> Self { Self(Box::new(LinearExpression0::VarLookup(var))) }
-    fn let_(arg: Self, var: VariableName, body: Self) -> Self { Self(Box::new(LinearExpression0::Let { arg, var, body })) }
+    fn let_move(arg: Self, var: VariableName, body: Self) -> Self { Self(Box::new(LinearExpression0::LetMove { arg, var, body })) }
     fn let_cartesean(arg: CartesianExpression, var: VariableName, body: Self) -> Self { Self(Box::new(LinearExpression0::LetCartesian { cartesian_arg: arg, var, body })) }
     fn object(moved_env: LinearBindings, branches: Vec<LinearPatternBranch>) -> Self { Self(Box::new(LinearExpression0::Object { captured_bindings: moved_env, branches })) }
     fn send(obj: Self, msg: Self) -> Self { Self(Box::new(LinearExpression0::Send(obj, msg))) }
@@ -883,7 +985,7 @@ impl LinearEnv {
 
     fn is_empty(&self) -> bool { matches!(*self.0, LinearEnv0::Empty) }
 
-    fn use_(self, var_name: VariableName) -> Result<(LinearValue, Self), Error> {
+    fn move_(self, var_name: VariableName) -> Result<(LinearValue, Self), Error> {
         use LinearEnv0::*;
         match *self.0 {
             Empty => Err(Error::VariableLookupFailure(var_name)),
@@ -891,8 +993,39 @@ impl LinearEnv {
                 if var == var_name {
                     Ok((value, parent))
                 } else {
-                    let (value0, parent) = parent.use_(var_name)?;
+                    let (value0, parent) = parent.move_(var_name)?;
                     Ok((value0, LinearEnv(Box::new(Push { var, value, parent }))))
+                }
+            },
+        }
+    }
+
+    fn clone_(self, var_name: VariableName) -> Result<(LinearValue, Self), Error> {
+        use LinearEnv0::*;
+        match *self.0 {
+            Empty => Err(Error::VariableLookupFailure(var_name)),
+            Push { var, value, parent } => {
+                if var == var_name {
+                    let (value0, value1) = value.duplicate();
+                    Ok((value0, LinearEnv(Box::new(Push { var, value: value1, parent }))))
+                } else {
+                    let (value0, parent) = parent.clone_(var_name)?;
+                    Ok((value0, LinearEnv(Box::new(Push { var, value, parent }))))
+                }
+            },
+        }
+    }
+
+    fn drop_(self, var_name: VariableName) -> Result<Self, Error> {
+        use LinearEnv0::*;
+        match *self.0 {
+            Empty => Err(Error::VariableLookupFailure(var_name)),
+            Push { var, value, parent } => {
+                if var == var_name {
+                    Ok(parent)
+                } else {
+                    let parent = parent.drop_(var_name)?;
+                    Ok(LinearEnv(Box::new(Push { var, value, parent })))
                 }
             },
         }
@@ -1103,9 +1236,19 @@ fn linear_eval(program: &Program, cartesian_env: &CartesianEnv, env: LinearEnv, 
             }
             Ok((env, LinearValue::Tuple(values)))
         },
-        VarUse(var_name) => {
-            let (value, env) = env.use_(var_name)?;
+        VarMove(var_name) => {
+            let (value, env) = env.move_(var_name)?;
             Ok((env, value))
+        },
+        VarClone(var_name) => {
+            // This looks up the var in the environment, then attempts a clone.
+            let (value, env) = env.clone_(var_name)?;
+            Ok((env, value))
+        },
+        VarDrop(var_name, expr) => {
+            // This looks up the var in the environmeent, then attempts to drop the var.
+            let env = env.drop_(var_name)?;
+            linear_eval(program, cartesian_env, env, expr)
         },
         VarLookup(var_name) => {
             let cartesian_value = cartesian_env.get(var_name)?;
@@ -1115,7 +1258,7 @@ fn linear_eval(program: &Program, cartesian_env: &CartesianEnv, env: LinearEnv, 
             let (env, arg_value) = linear_eval(program, cartesian_env, env, arg)?;
             linear_apply_msg_to_branches(program, cartesian_env, env, branches, arg_value)
         },
-        Let { arg, var, body } => {
+        LetMove { arg, var, body } => {
             let (env, arg_value) = linear_eval(program, cartesian_env, env, arg)?;
             let env = env.extend(var, arg_value);
             linear_eval(program, cartesian_env, env, body)

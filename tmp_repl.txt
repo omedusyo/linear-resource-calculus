@@ -3,7 +3,13 @@ cargo build
 
 cargo run
 
+====Cartesian====
+
+cargo run repl cartesian
+
 let { foo = 123 . $foo }
+
+let { foo = 123 . read foo }
 
 obj { x . $x }
 
@@ -166,6 +172,7 @@ range-iter(5, 0)
 :def fn f(x) { $x }
 
 
+====Linear====
 
 cargo run repl linear
 
@@ -191,9 +198,30 @@ example_tuple_0[]
 
 #fst[]
 
+
+let { x = 123 . %x }
+
+let { x = 123 . move x }
+
+let { x = 123 . [clone x, %x] }
+
+let { x = 123 . [clone x, move x] }
+
+let { x = 123 . [%x, clone x] }
+
+let { x = 123 . [] }
+
+let { x = 123 . drop x . [] }
+
+
+
 example_tuple_1[]
 
+:r
+
 range-iter[5, 0]
+
+range-iter-simpler[5, 0]
 
 :def fn f[x] { %x }
 
@@ -216,7 +244,7 @@ map-server[incrementing-server[], range-iter[5, 0]]
 
 :r
 
-fib[5]
+fib[5, 0]
 
 
 dup_nat[5]
@@ -226,7 +254,19 @@ dup_nat[5]
 dup[#cons[5, #nil[]]]
 
 
+:r
+
 send[fib[3, 5], #next[]]
+
+observe-stream[fib[0, 1], 0]
+
+observe-stream[fib[0, 1], 10]
+
+
+let { [x, y] = [20, 30] . [%y, %x] }
+
+let { [x, [y, z]] = [20, [30, 40]] . [%y, %x, %z] }
+
 
 # ====Combined====
 
@@ -243,6 +283,15 @@ cart +(*(3, 4), 1)
 cart #foo()
 
 lin #foo[]
+
+cart let { x = 123 . read x }
+
+cart let { (x, y) = (123, 512) . ($y, $x, $x) }
+
+cart let { (x, y) = (123, 512) . $y }
+
+lin let { [x, [y, z]] = [123, [512, 32]] . [%y, %x, %z] }
+
 
 cart let { a = 123 . +($a, 1) }
 
