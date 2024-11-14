@@ -2,7 +2,8 @@ fn cart id(x) { $x }
 
 fn cart square(x) { *($x, $x) }
 
-fn cart pyth(x, y) { +(square($x), square($y)) }
+// This is a comment
+fn cart pyth(x, y) { +(square($x), //{note that this is also a comment} square($y)) }
 
 fn cart fct(x) { match ==($x, 0) {
 | #T() . 1
@@ -62,7 +63,7 @@ fn lin fib-state[x, y] { obj { x = %x, y = %y .
 fn lin observe-stream[stream, n] { observe-stream-loop[%stream, 0, %n] }
 
 fn lin observe-stream-loop[stream, i, n] { match ==[clone i, clone n] {
-  #T[] .
+| #T[] .
     drop i .
     drop n .
     #cont[%stream]

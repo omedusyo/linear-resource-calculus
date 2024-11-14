@@ -86,6 +86,142 @@ fn is_forbiden_char(c: char) -> bool {
     }
 }
 
+fn comment(input: &str) -> IResult<&str, ()> {
+    let (input, _) = char('/')(input)?;
+    let (mut input, _) = char('/')(input)?;
+    let (input_if_bracesopen_brace_commited, c) = peek(anychar)(input)?;
+    match c {
+        '{' => { // The comment is `//{...}`
+            input = input_if_bracesopen_brace_commited;
+            // Consume everything until you see (unescaped) '}' symbol or EOF.
+            // TODO: You need to handle the escaped '}', otherwise you can't have '}' in the comments.
+            loop {
+                match anychar(input)? {
+                    (input0, '}') => {
+                        input = input0;
+                        break
+                    },
+                    (input0, _c) => {
+                        input = input0;
+                    },
+                }
+            }
+            Ok((input, ()))
+        },
+        _ => {
+            // Consume everything until you see '\n' or EOF
+            loop {
+                match anychar::<&str, ()>(input) {
+                    Ok((_, '\n')) => {
+                        break
+                    },
+                    Ok((input0, _c)) => {
+                        input = input0;
+                    },
+                    Err(_err) => {
+                        break
+                    },
+                }
+            }
+            Ok((input, ()))
+        }
+    }
+}
+#[cfg(test)]
+#[test]
+fn test_comment() {
+    let input = "//foo";
+    let result = comment(input);
+    assert!(matches!(result, Ok(_)));
+
+    let input = "/foo";
+    let result = comment(input);
+    assert!(matches!(result, Err(_)));
+
+    let input = "//foo\nbar";
+    let result = comment(input);
+    assert!(matches!(result, Ok(("\nbar", _))));
+
+    let input = "//{foo} bar";
+    let result = comment(input);
+    assert!(matches!(result, Ok((" bar", _))));
+
+    let input = "//{foo \n quux} bar";
+    let result = comment(input);
+    assert!(matches!(result, Ok((" bar", _))));
+}
+
+fn peek_char_or_eof(input: &str) -> IResult<&str, Option<char>> {
+    match anychar::<&str, ()>(input) {
+        Ok((input, c)) => Ok((input, Some(c))),
+        Err(_err) => {
+            Ok((input, None))
+        }
+    }
+}
+#[cfg(test)]
+#[test]
+fn test_peek_char_or_eof() {
+    let input = "";
+    let result = peek_char_or_eof(input);
+    assert!(matches!(result, Ok(_)));
+    assert!(matches!(result, Ok((_, None))));
+
+    let input = "foo";
+    let result = peek_char_or_eof(input);
+    assert!(matches!(result, Ok(_)));
+    assert!(matches!(result, Ok((_, Some(_)))));
+    assert!(matches!(result, Ok((_, Some('f')))));
+}
+
+// Includes comments too
+fn whitespace(input: &str) -> IResult<&str, ()> {
+    let (input, _) = multispace0(input)?;
+    let (input0, c) = peek_char_or_eof(input)?;
+    match c {
+        Some('/') => {
+            let (_, c) = peek_char_or_eof(input0)?;
+            match c {
+                Some('/') => {
+                    // Comment detected.
+                    let (input, ()) = comment(input)?;
+                    return whitespace(input)
+                },
+                _ => {},
+            }
+        },
+        _ => {}
+    }
+    Ok((input, ()))
+}
+#[cfg(test)]
+#[test]
+fn test_whitespace() {
+    let input = "";
+    let result = whitespace(input);
+    assert!(matches!(result, Ok(_)));
+
+    let input = "  foo ";
+    let result = whitespace(input);
+    assert!(matches!(result, Ok(("foo ", _))));
+
+    let input = "  \n\n   \nfoo";
+    let result = whitespace(input);
+    assert!(matches!(result, Ok(("foo", _))));
+
+    let input = "  \n\n   \n";
+    let result = whitespace(input);
+    assert!(matches!(result, Ok(("", _))));
+
+    let input = "  \n\n //somecomment  \nfoo";
+    let result = whitespace(input);
+    assert!(matches!(result, Ok(("foo", _))));
+
+    let input = "  \n\n //{somecomment}  \n  foo";
+    let result = whitespace(input);
+    assert!(matches!(result, Ok(("foo", _))));
+}
+
 pub fn parse_identifier(input: &str) -> IResult<&str, String> {
     // Identifier can't start with a char in "(){},.|%$#-012345689=".
     // Afterwards we have a sequence of any chars except those contained in "()[]{},.|$#" or
@@ -100,11 +236,11 @@ pub fn parse_identifier(input: &str) -> IResult<&str, String> {
         // make sure the next char is also another '='.
         let (input, _) = char('=')(input)?;
         let (input, s) = take_while(|c: char| !is_forbiden_char(c))(input)?;
-        let (input, _) = multispace0(input)?;
+        let (input, _) = whitespace(input)?;
         Ok((input, format!("=={}", s)))
     } else {
         let (input, s) = take_while(|c: char| !is_forbiden_char(c))(input)?;
-        let (input, _) = multispace0(input)?;
+        let (input, _) = whitespace(input)?;
         Ok((input, format!("{}{}", c0, s)))
     }
 }
@@ -122,47 +258,47 @@ pub fn parse_token(input: &str) -> IResult<&str, Token> {
     match c {
         '(' => {
             let (input, _) = anychar(input)?;
-            let (input, _) = multispace0(input)?;
+            let (input, _) = whitespace(input)?;
             Ok((input, Token::OpenParen))
         },
         ')' => {
             let (input, _) = anychar(input)?;
-            let (input, _) = multispace0(input)?;
+            let (input, _) = whitespace(input)?;
             Ok((input, Token::CloseParen))
         },
         '[' => {
             let (input, _) = anychar(input)?;
-            let (input, _) = multispace0(input)?;
+            let (input, _) = whitespace(input)?;
             Ok((input, Token::OpenBracket))
         },
         ']' => {
             let (input, _) = anychar(input)?;
-            let (input, _) = multispace0(input)?;
+            let (input, _) = whitespace(input)?;
             Ok((input, Token::CloseBracket))
         },
         '{' => {
             let (input, _) = anychar(input)?;
-            let (input, _) = multispace0(input)?;
+            let (input, _) = whitespace(input)?;
             Ok((input, Token::OpenCurly))
         },
         '}' => {
             let (input, _) = anychar(input)?;
-            let (input, _) = multispace0(input)?;
+            let (input, _) = whitespace(input)?;
             Ok((input, Token::CloseCurly))
         },
         '.' => {
             let (input, _) = anychar(input)?;
-            let (input, _) = multispace0(input)?;
+            let (input, _) = whitespace(input)?;
             Ok((input, Token::BindingSeparator))
         },
         ',' => {
             let (input, _) = anychar(input)?;
-            let (input, _) = multispace0(input)?;
+            let (input, _) = whitespace(input)?;
             Ok((input, Token::Comma))
         },
         '|' => {
             let (input, _) = anychar(input)?;
-            let (input, _) = multispace0(input)?;
+            let (input, _) = whitespace(input)?;
             Ok((input, Token::OrSeparator))
         },
         '$' => {
@@ -186,7 +322,7 @@ pub fn parse_token(input: &str) -> IResult<&str, Token> {
             // 123
             // -123
             let (input, x) = i32(input)?;
-            let (input, _) = multispace0(input)?;
+            let (input, _) = whitespace(input)?;
             Ok((input, Token::Int(x)))
         },
         '=' => {
@@ -202,7 +338,7 @@ pub fn parse_token(input: &str) -> IResult<&str, Token> {
                     let (input, str) = parse_identifier(input_backup)?;
                     Ok((input, Token::Identifier(str)))
                 } else {
-                    let (input, _) = multispace0(input)?;
+                    let (input, _) = whitespace(input)?;
                     Ok((input, Token::Eq))
                 }
             }
@@ -231,7 +367,6 @@ impl <'a> TokenStream<'a> {
         Self { input }
     }
 
-    // fn next(mut self) -> Result<(Self, Token), nom::Err<nom::error::Error<&'a str>>> {
     pub fn next(mut self) -> IResult0<'a, Token> {
         let result = parse_token(self.input);
         match result {
