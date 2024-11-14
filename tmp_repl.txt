@@ -20,13 +20,11 @@ send(obj { x . $x }, 123)
 f(123)
 
 
-#cons 
+#nil()
 
-#nil
+#cons(123, #nil())
 
-#cons(123, #nil)
-
-#pair(#foo(#nil), #pair())
+#pair(#foo(#nil()), #pair())
 
 :def fn square(x) { *($x, $x) }
 
@@ -48,7 +46,7 @@ let { x = 6 . match ==(2, +(1, 1)) { #T() . $x | #F() . *(3, $x) } }
 
 *(3, 4)
 
-let { inc = fn { x . +($x, 1) } . send($inc, 5) }
+let { inc = obj { x . +($x, 1) } . send($inc, 5) }
 
 (1, 2, 3)
 
@@ -73,8 +71,6 @@ fct(5)
 ()
 
 #cons(1, 2)
-
-#cons 123 ()
 
 
 match #foo (3, 4) { #bar () . 123 | #foo (x, y) . $x }
@@ -190,8 +186,6 @@ mul_5[6]
 
 :r
 
-square[5]
-
 send[example_tuple_0[], #fst[]]
 
 example_tuple_0[]
@@ -230,7 +224,7 @@ obj {. #foo[] . 123 }
 
 :r
 
-send[incrementing_server[], #apply[5]]
+send[incrementing-server[], #apply[5]]
 
 map_server()
 
@@ -247,7 +241,7 @@ map-server[incrementing-server[], range-iter[5, 0]]
 fib[5, 0]
 
 
-dup_nat[5]
+dup_nat[#succ#succ#zero[]]
 
 // I need a builtin dup  that will clone inductive stuff, but will fail on objects
 
@@ -314,9 +308,28 @@ cargo run repl combined
 
 :list fn
 
+:r
+
+cart fct(5)
+
+lin not[#T[]]
+
 lin pyth(3,4)[]
 
+
 lin id()[5]
+
+:load program3.pmd.combined
+
+lin id[5]
+
+cart id(123)
+
+cart one-two-three()
+
+lin one-two-three
+
+cart huh
 
 :r
 
@@ -328,7 +341,9 @@ lin let { x = 123 . %x }
 
 lin let-cart { x = 123 . $x }
 
+lin observe-stream[fib[0, 1], 10]
 
 cargo build
+
 
 

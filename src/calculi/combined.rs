@@ -1,8 +1,11 @@
 use std::rc::Rc;
 use std::fmt;
 use crate::tokenizer::{TokenStream, Token, TokenType};
-use crate::syntax::{anyidentifier, anytoken, identifier, token, peek_anytoken, peek_token, vector, delimited_nonempty_vector, delimited_vector};
-use crate::identifier::{VariableName, FunctionName, Tag, variable_name};
+use crate::syntax::{
+    anyidentifier, anytoken, identifier, token, peek_anytoken, peek_token, vector, delimited_nonempty_vector, delimited_vector,
+    variable_name, parameter_vector, or_vector, comma_vector, binding_vector, parens, brackets, curly_braces, possibly_empty_relaxed_paren_vector, possibly_empty_relaxed_bracket_vector,
+};
+use crate::identifier::{VariableName, FunctionName, Tag};
 use crate::IResult0;
 use std::collections::HashMap;
 
@@ -13,14 +16,6 @@ pub enum Mode {
 }
 
 // ===parser===
-// ==helpers==
-// No parens, just a possibly empty comma separated list of identifiers.
-fn parameter_vector(input: TokenStream) -> IResult0<Vec<VariableName>> {
-    // TODO: Check uniqueness.
-    delimited_vector(variable_name, token(TokenType::Comma))(input)
-}
-
-// ==Concrete parsers==
 fn identifier_to_operation_code(str: &str) -> Option<OperationCode> {
     match str {
         "+" => Some(OperationCode::Add),
@@ -96,9 +91,7 @@ fn parse_linear_operator_arguments(op_code: OperationCode, input: TokenStream) -
 
 fn parse_linear_arg_list1(input: TokenStream) -> IResult0<LinearExpression> {
     // "[e0]  "
-    let (input, _) = token(TokenType::OpenBracket)(input)?;
-    let (input, e0) = parse_linear_expression(input)?;
-    let (input, _) = token(TokenType::CloseBracket)(input)?;
+    let (input, e0) = brackets(parse_linear_expression)(input)?;
     Ok((input, e0))
 }
 fn parse_cartesian_arg_list2(input: TokenStream) -> IResult0<(CartesianExpression, CartesianExpression)> {
@@ -146,40 +139,18 @@ pub fn parse_function_definition(input: TokenStream) -> IResult0<FunctionDefinit
     let (input, function_name_str) = anyidentifier(input)?;
     match mode {
         Mode::Cartesian => {
-            let (input, _) = token(TokenType::OpenParen)(input)?;
-            let (input, cartesian_parameters) = parameter_vector(input)?;
-            let (input, _) = token(TokenType::CloseParen)(input)?;
-
-            let (input, _) = token(TokenType::OpenCurly)(input)?;
-            let (input, body) = parse_cartesian_expression(input)?;
-            let (input, _) = token(TokenType::CloseCurly)(input)?;
+            let (input, cartesian_parameters) = possibly_empty_relaxed_paren_vector(variable_name)(input)?;
+            let (input, body) = curly_braces(parse_cartesian_expression)(input)?;
             Ok((input, FunctionDefinition::Cartesian(CartesianFunctionDefinition { name: FunctionName::new(function_name_str), cartesian_parameters, body })))
         },
         Mode::Linear => {
-            let (input, _) = token(TokenType::OpenParen)(input)?;
-            let (input, cartesian_parameters) = parameter_vector(input)?;
-            let (input, _) = token(TokenType::CloseParen)(input)?;
-
-            let (input, _) = token(TokenType::OpenBracket)(input)?;
-            let (input, linear_parameters) = parameter_vector(input)?;
-            let (input, _) = token(TokenType::CloseBracket)(input)?;
-
-            let (input, _) = token(TokenType::OpenCurly)(input)?;
-            let (input, body) = parse_linear_expression(input)?;
-            let (input, _) = token(TokenType::CloseCurly)(input)?;
+            let (input, cartesian_parameters) = possibly_empty_relaxed_paren_vector(variable_name)(input)?;
+            let (input, linear_parameters) = possibly_empty_relaxed_bracket_vector(variable_name)(input)?;
+            let (input, body) = curly_braces(parse_linear_expression)(input)?;
             Ok((input, FunctionDefinition::Linear(LinearFunctionDefinition { name: FunctionName::new(function_name_str), cartesian_parameters, linear_parameters, body })))
         },
     }
 }
-
-
-fn cartesian_expression_vector(input: TokenStream) -> IResult0<Vec<CartesianExpression>> {
-    delimited_vector(parse_cartesian_expression, token(TokenType::Comma))(input)
-}
-fn linear_expression_vector(input: TokenStream) -> IResult0<Vec<LinearExpression>> {
-    delimited_vector(parse_linear_expression, token(TokenType::Comma))(input)
-}
-
 
 // x = e0
 pub fn parse_cartesian_var_binding(input: TokenStream) -> IResult0<(VariableName, CartesianExpression)> {
@@ -224,10 +195,10 @@ pub fn parse_linear_branch(input: TokenStream) -> IResult0<LinearPatternBranch> 
 }
 
 pub fn parse_cartesian_branches(input: TokenStream) -> IResult0<Vec<CartesianPatternBranch>> {
-    delimited_vector(parse_cartesian_branch, token(TokenType::OrSeparator))(input)
+    or_vector(parse_cartesian_branch)(input)
 }
 pub fn parse_linear_branches(input: TokenStream) -> IResult0<Vec<LinearPatternBranch>> {
-    delimited_vector(parse_linear_branch, token(TokenType::OrSeparator))(input)
+    or_vector(parse_linear_branch)(input)
 }
 
 fn parse_pattern(mode: Mode) -> impl FnOnce(TokenStream) -> IResult0<Pattern> {
@@ -312,7 +283,7 @@ pub fn parse_cartesian_expression(input: TokenStream) -> IResult0<CartesianExpre
         },
         OpenParen => {
             // tuple
-            let (input, args) = cartesian_expression_vector(input)?;
+            let (input, args) = comma_vector(parse_cartesian_expression)(input)?;
             let (input, _) = token(TokenType::CloseParen)(input)?;
             Ok((input, CartesianExpression::tuple(args)))
         },
@@ -359,17 +330,13 @@ pub fn parse_cartesian_expression(input: TokenStream) -> IResult0<CartesianExpre
                 },
                 "match" => {
                     let (input, arg) = parse_cartesian_expression(input)?;
-                    let (input, _) = token(TokenType::OpenCurly)(input)?;
-                    let (input, branches) = parse_cartesian_branches(input)?;
-                    let (input, _) = token(TokenType::CloseCurly)(input)?;
+                    let (input, branches) = curly_braces(parse_cartesian_branches)(input)?;
 
                     Ok((input, CartesianExpression::match_(arg, branches)))
                 },
                 "obj" => {
                     // obj { #hd () . e0 | #tl () . e1 }
-                    let (input, _) = token(TokenType::OpenCurly)(input)?;
-                    let (input, branches) = parse_cartesian_branches(input)?;
-                    let (input, _) = token(TokenType::CloseCurly)(input)?;
+                    let (input, branches) = curly_braces(parse_cartesian_branches)(input)?;
                     Ok((input, CartesianExpression::object(branches)))
                 },
                 "send" => {
@@ -379,29 +346,15 @@ pub fn parse_cartesian_expression(input: TokenStream) -> IResult0<CartesianExpre
                 },
                 "thunk" => {
                     // thunk { e }
-                    let (input, _) = token(TokenType::OpenCurly)(input)?;
-                    let (input, e) = parse_linear_expression(input)?;
-                    let (input, _) = token(TokenType::CloseCurly)(input)?;
+                    let (input, e) = curly_braces(parse_linear_expression)(input)?;
                     Ok((input, CartesianExpression::thunk(e)))
                 },
                 s => match identifier_to_operation_code(s) {
                     Some(op_code) => parse_cartesian_operator_arguments(op_code, input),
                     None => {
-                        let (input, token_match) = peek_token(TokenType::OpenParen)(input)?;
-                        match token_match {
-                            Some(_) => {
-                                // Here we have a function call
-                                let (input, _) = token(TokenType::OpenParen)(input)?;
-                                let (input, arguments) = cartesian_expression_vector(input)?;
-                                let (input, _) = token(TokenType::CloseParen)(input)?;
-                                Ok((input, CartesianExpression::call(FunctionName::new(identifier), arguments)))
-                            },
-                            None => {
-                                // TODO: Check if this is a function application
-                                // I need to peek if the next token is an open paren
-                                Err(nom::Err::Error(nom::error::Error { input: input.input, code: nom::error::ErrorKind::Alt }))
-                            }
-                        }
+                        // Here we have a function call
+                        let (input, arguments) = possibly_empty_relaxed_paren_vector(parse_cartesian_expression)(input)?;
+                        Ok((input, CartesianExpression::call(FunctionName::new(identifier), arguments)))
                     },
                 },
             }
@@ -443,7 +396,7 @@ pub fn parse_linear_expression(input: TokenStream) -> IResult0<LinearExpression>
         },
         OpenBracket => {
             // tuple
-            let (input, args) = linear_expression_vector(input)?;
+            let (input, args) = comma_vector(parse_linear_expression)(input)?;
             let (input, _) = token(TokenType::CloseBracket)(input)?;
             Ok((input, LinearExpression::tuple(args)))
         },
@@ -502,9 +455,7 @@ pub fn parse_linear_expression(input: TokenStream) -> IResult0<LinearExpression>
                 },
                 "match" => {
                     let (input, arg) = parse_linear_expression(input)?;
-                    let (input, _) = token(TokenType::OpenCurly)(input)?;
-                    let (input, branches) = parse_linear_branches(input)?;
-                    let (input, _) = token(TokenType::CloseCurly)(input)?;
+                    let (input, branches) = curly_braces(parse_linear_branches)(input)?;
 
                     Ok((input, LinearExpression::match_(arg, branches)))
                 },
@@ -524,34 +475,16 @@ pub fn parse_linear_expression(input: TokenStream) -> IResult0<LinearExpression>
                 },
                 "force" => {
                     // force[%some_thunk]
-                    let (input, _) = token(TokenType::OpenBracket)(input)?;
-                    let (input, e) = parse_cartesian_expression(input)?;
-                    let (input, _) = token(TokenType::CloseBracket)(input)?;
+                    let (input, e) = brackets(parse_cartesian_expression)(input)?;
                     Ok((input, LinearExpression::force(e)))
                 }
                 s => match identifier_to_operation_code(s) {
                     Some(op_code) => 
                         parse_linear_operator_arguments(op_code, input),
                     None => {
-                        let (input, token_match) = peek_token(TokenType::OpenParen)(input)?;
-                        match token_match {
-                            Some(_) => {
-                                // Here we have a function call
-                                let (input, _) = token(TokenType::OpenParen)(input)?;
-                                let (input, cartesian_arguments) = cartesian_expression_vector(input)?;
-                                let (input, _) = token(TokenType::CloseParen)(input)?;
-
-                                let (input, _) = token(TokenType::OpenBracket)(input)?;
-                                let (input, arguments) = linear_expression_vector(input)?;
-                                let (input, _) = token(TokenType::CloseBracket)(input)?;
-                                Ok((input, LinearExpression::call(FunctionName::new(identifier), cartesian_arguments, arguments)))
-                            },
-                            None => {
-                                // TODO: Check if this is a function application
-                                // I need to peek if the next token is an open paren
-                                Err(nom::Err::Error(nom::error::Error { input: input.input, code: nom::error::ErrorKind::Alt }))
-                            }
-                        }
+                        let (input, cartesian_arguments) = possibly_empty_relaxed_paren_vector(parse_cartesian_expression)(input)?;
+                        let (input, arguments) = possibly_empty_relaxed_bracket_vector(parse_linear_expression)(input)?;
+                        Ok((input, LinearExpression::call(FunctionName::new(identifier), cartesian_arguments, arguments)))
                     },
                 },
             }

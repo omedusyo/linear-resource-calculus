@@ -4,11 +4,70 @@ fn cart square(x) { *($x, $x) }
 
 fn cart pyth(x, y) { +(square($x), square($y)) }
 
-fn lin id()[a] {
+fn cart fct(x) { match ==($x, 0) {
+| #T() . 1
+| #F() . *($x, fct(sub($x, 1)))
+}}
+
+fn cart map(f, xs) { match $xs {
+| #nil() . #nil()
+| #cons(x, xs) . #cons(send($f, $x), map($f, $xs))
+}}
+
+fn cart range-iter(n, i) { match ==($n, $i) {
+| #T() . #nil()
+| #F() . #cons($i, range-iter($n, +($i, 1)))
+}}
+
+fn cart nats(n) { obj {
+| #hd () . $n
+| #tl () . nats(+($n, 1))
+}}
+
+
+
+fn lin id[a] {
   %a
 }
 
-fn lin pyth(x, y)[] {
+fn lin pyth(x, y) {
   let-cart { z = pyth($x, $y) . $z }
 }
 
+fn cart huh() { 512 }
+fn cart one-two-three { 123 }
+fn lin one-two-three { 123 }
+
+
+fn lin not[b] {
+  match %b {
+  | #T[] . #F[]
+  | #F[] . #T[]
+  }
+}
+
+
+fn lin append[xs, ys] { match %xs {
+| #nil [] . %ys
+| #cons [x, xs] . #cons [%x, append[%xs, %ys]]
+}}
+
+
+fn lin fib { fib-state[0, 1] }
+fn lin fib-state[x, y] { obj { x = %x, y = %y .
+   #next[] .
+   [clone x,  fib-state[clone y, +[%x, %y]]]
+}}
+
+fn lin observe-stream[stream, n] { observe-stream-loop[%stream, 0, %n] }
+
+fn lin observe-stream-loop[stream, i, n] { match ==[clone i, clone n] {
+  #T[] .
+    drop i .
+    drop n .
+    #cont[%stream]
+| #F[] .
+    let { [x, stream] = send[%stream, #next[]] .
+      #cons[%x, observe-stream-loop[%stream, +[%i, 1], %n]]
+    }
+}}

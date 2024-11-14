@@ -1,7 +1,5 @@
 use std::rc::Rc;
 use std::fmt;
-use crate::{TokenStream, IResult0};
-use crate::syntax::anyidentifier;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct VariableName(Rc<String>);
@@ -40,11 +38,6 @@ impl Tag {
     pub fn str(&self) -> &str {
         &self.0
     }
-}
-
-pub fn variable_name(input: TokenStream) -> IResult0<VariableName> {
-    let (input, str) = anyidentifier(input)?;
-    Ok((input, VariableName::new(str)))
 }
 
 impl fmt::Display for Tag {

@@ -1,7 +1,10 @@
 use std::fmt;
 use crate::tokenizer::{TokenStream, Token, TokenType};
-use crate::syntax::{anyidentifier, anytoken, identifier, token, peek_anytoken, peek_token, vector, delimited_nonempty_vector, delimited_vector};
-use crate::identifier::{VariableName, FunctionName, Tag, variable_name};
+use crate::syntax::{
+    anyidentifier, anytoken, identifier, token, peek_anytoken, peek_token, vector, delimited_nonempty_vector, delimited_vector,
+    parameter_vector, or_vector, comma_vector, binding_vector, parens, brackets, curly_braces,
+};
+use crate::identifier::{VariableName, FunctionName, Tag};
 use crate::IResult0;
 use std::collections::HashMap;
 
@@ -66,15 +69,9 @@ fn parse_arg_list1(input: TokenStream) -> IResult0<Expression> {
     Ok((input, e0))
 }
 
-// No parens, just a possibly empty comma separated list of identifiers.
-fn parameter_vector(input: TokenStream) -> IResult0<Vec<VariableName>> {
-    // TODO: Check uniqueness.
-    delimited_vector(variable_name, token(TokenType::Comma))(input)
-}
-
 // No parens, just a possibly empty comma separated list of expressions.
 fn expression_vector(input: TokenStream) -> IResult0<Vec<Expression>> {
-    delimited_vector(parse_expression, token(TokenType::Comma))(input)
+    comma_vector(parse_expression)(input)
 }
 
 pub fn parse_program(input: TokenStream) -> IResult0<Program> {
@@ -91,18 +88,10 @@ pub fn parse_program(input: TokenStream) -> IResult0<Program> {
 pub fn parse_function_definition(input: TokenStream) -> IResult0<FunctionDefinition> {
     let (input, _) = identifier("fn")(input)?;
     let (input, function_name_str) = anyidentifier(input)?;
-    let (input, _) = token(TokenType::OpenBracket)(input)?;
-    let (input, parameters) = parameter_vector(input)?;
-    let (input, _) = token(TokenType::CloseBracket)(input)?;
+    let (input, parameters) = brackets(parameter_vector)(input)?;
 
-    let (input, _) = token(TokenType::OpenCurly)(input)?;
-    let (input, body) = parse_expression(input)?;
-    let (input, _) = token(TokenType::CloseCurly)(input)?;
+    let (input, body) = curly_braces(parse_expression)(input)?;
     Ok((input, FunctionDefinition { name: FunctionName::new(function_name_str), parameters, body }))
-}
-
-fn parse_pattern_sequence(input: TokenStream) -> IResult0<Vec<Pattern>> {
-    delimited_vector(parse_pattern, token(TokenType::Comma))(input)
 }
 
 fn parse_pattern(input: TokenStream) -> IResult0<Pattern> {
@@ -128,7 +117,7 @@ fn parse_pattern(input: TokenStream) -> IResult0<Pattern> {
 
 // This is a special case where the patterns are all nested tuple patterns.
 fn parse_tuple_pattern_sequence(input: TokenStream) -> IResult0<Vec<TuplePattern>> {
-    delimited_vector(parse_tuple_pattern, token(TokenType::Comma))(input)
+    comma_vector(parse_tuple_pattern)(input)
 }
 
 fn parse_tuple_pattern(input: TokenStream) -> IResult0<TuplePattern> {
@@ -154,7 +143,7 @@ pub fn parse_branch(input: TokenStream) -> IResult0<PatternBranch> {
 }
 
 pub fn parse_branches(input: TokenStream) -> IResult0<Vec<PatternBranch>> {
-    delimited_vector(parse_branch, token(TokenType::OrSeparator))(input)
+    or_vector(parse_branch)(input)
 }
 
 // x = e0
@@ -168,7 +157,7 @@ pub fn parse_var_binding(input: TokenStream) -> IResult0<(VariableName, Expressi
 
 // x = e0, y = e1, z = e2
 pub fn parse_var_bindings(input: TokenStream) -> IResult0<Bindings> {
-    let (input, var_expr_pair) = delimited_vector(parse_var_binding, token(TokenType::Comma))(input)?;
+    let (input, var_expr_pair) = comma_vector(parse_var_binding)(input)?;
     let mut bindings = Bindings0::Empty;
     for (var, expr) in var_expr_pair {
         bindings = Bindings0::Push { var, expr, parent: Bindings(Box::new(bindings)) };
@@ -256,14 +245,12 @@ pub fn parse_expression(input: TokenStream) -> IResult0<Expression> {
                 },
                 "match" => {
                     let (input, arg) = parse_expression(input)?;
-                    let (input, _) = token(TokenType::OpenCurly)(input)?;
-                    let (input, branches) = parse_branches(input)?;
-                    let (input, _) = token(TokenType::CloseCurly)(input)?;
+                    let (input, branches) = curly_braces(parse_branches)(input)?;
 
                     Ok((input, Expression::match_(arg, branches)))
                 },
                 "obj" => {
-                    // obj { x = e0, y = e1 . #hd () . body0 | #tl () . body1 }
+                    // obj { x = e0, y = e1 . #hd [] . body0 | #tl [] . body1 }
                     let (input, _) = token(TokenType::OpenCurly)(input)?;
                     let (input, captured_bindings) = parse_var_bindings(input)?;
                     let (input, _) = token(TokenType::BindingSeparator)(input)?;
@@ -272,7 +259,7 @@ pub fn parse_expression(input: TokenStream) -> IResult0<Expression> {
                     Ok((input, Expression::object(captured_bindings, branches)))
                 },
                 "send" => {
-                    // send(%obj, %msg)
+                    // send[%obj, %msg]
                     let (input, (e0, e1)) = parse_arg_list2(input)?;
                     Ok((input, Expression::send(e0, e1)))
                 },
@@ -284,9 +271,7 @@ pub fn parse_expression(input: TokenStream) -> IResult0<Expression> {
                         match token_match {
                             Some(_) => {
                                 // Here we have a function call
-                                let (input, _) = token(TokenType::OpenBracket)(input)?;
-                                let (input, arguments) = expression_vector(input)?;
-                                let (input, _) = token(TokenType::CloseBracket)(input)?;
+                                let (input, arguments) = brackets(expression_vector)(input)?;
                                 Ok((input, Expression::call(FunctionName::new(identifier), arguments)))
                             },
                             None => {

@@ -1,5 +1,6 @@
 use crate::IResult0;
 use crate::tokenizer::{TokenStream, Token, TokenType};
+use crate::identifier::VariableName;
 
 pub fn anytoken(input: TokenStream) -> IResult0<Token> {
     input.next()
@@ -112,6 +113,41 @@ pub fn delimited_vector<A, D>(
     }
 }
 
+pub fn take_while_succeeds<D>(
+    p: impl Fn(TokenStream) -> IResult0<D>
+) -> impl Fn(TokenStream) -> IResult0<()> {
+    move |mut input: TokenStream| {
+        while let Ok((input0, _)) = p(input) { input = input0; }
+        Ok((input, ()))
+    }
+}
+
+// Suppose our delimiter is `,`, then relaxed means we optionally allow arbitrary number of delimiters to appear at the start
+// or at the end (or both). For example
+//     a, b, c
+//    ,a, b, c
+//     a, b, c,
+//    ,a, b, c,
+//  ,,,a, b, c,
+//  ,,,a, b, c,,,
+// are all valid. All return ~> [a,b,c]
+// Even the following is valid
+//  ,,,  ~> []
+// But
+//    a,,b,c
+// is not valid.
+pub fn relaxed_delimited_vector<A, D>(
+    pelement: impl Fn(TokenStream) -> IResult0<A>,
+    pdelimiter: impl Fn(TokenStream) -> IResult0<D>
+) -> impl Fn(TokenStream) -> IResult0<Vec<A>> {
+    move |input: TokenStream| {
+        let (input, _) = take_while_succeeds(&pdelimiter)(input)?;
+        let (input, vector) = delimited_vector(&pelement, &pdelimiter)(input)?;
+        let (input, _) = take_while_succeeds(&pdelimiter)(input)?;
+        Ok((input, vector))
+    }
+}
+
 pub fn delimited_nonempty_vector<A, D>(
     pelement: impl Fn(TokenStream) -> IResult0<A>,
     pdelimiter: impl Fn(TokenStream) -> IResult0<D>
@@ -132,6 +168,137 @@ pub fn delimited_nonempty_vector<A, D>(
                 },
                 Err(_err) => return Ok((input_backup, elements)),
             }
+        }
+    }
+}
+
+
+// ===Specific Parsers====
+// e0 , e1 , e2 , e3
+pub fn comma_vector<A>(
+    pelement: impl Fn(TokenStream) -> IResult0<A>,
+) -> impl Fn(TokenStream) -> IResult0<Vec<A>> {
+    move |input: TokenStream| {
+        relaxed_delimited_vector(&pelement, token(TokenType::Comma))(input)
+    }
+}
+
+// e0 | e1 | e2 | e3
+pub fn or_vector<A>(
+    pelement: impl Fn(TokenStream) -> IResult0<A>,
+) -> impl Fn(TokenStream) -> IResult0<Vec<A>> {
+    move |input: TokenStream| {
+        relaxed_delimited_vector(&pelement, token(TokenType::OrSeparator))(input)
+    }
+}
+
+// e0 . e1 . e2 . e3
+pub fn binding_vector<A>(
+    pelement: impl Fn(TokenStream) -> IResult0<A>,
+) -> impl Fn(TokenStream) -> IResult0<Vec<A>> {
+    move |input: TokenStream| {
+        relaxed_delimited_vector(&pelement, token(TokenType::BindingSeparator))(input)
+    }
+}
+
+pub fn variable_name(input: TokenStream) -> IResult0<VariableName> {
+    let (input, str) = anyidentifier(input)?;
+    Ok((input, VariableName::new(str)))
+}
+
+// No parens, just a possibly empty comma separated list of identifiers.
+pub fn parameter_vector(input: TokenStream) -> IResult0<Vec<VariableName>> {
+    // TODO: Check uniqueness.
+    delimited_vector(variable_name, token(TokenType::Comma))(input)
+}
+
+pub fn enclose<D0, A, D1>(
+    popen: impl Fn(TokenStream) -> IResult0<D0>,
+    pelement: impl Fn(TokenStream) -> IResult0<A>, 
+    pclose: impl Fn(TokenStream) -> IResult0<D0>,
+) -> impl Fn(TokenStream) -> IResult0<A> {
+    move |input: TokenStream| {
+        let (input, _) = popen(input)?;
+        let (input, a) = pelement(input)?;
+        let (input, _) = pclose(input)?;
+        Ok((input, a))
+    }
+}
+
+pub fn parens<A>(
+    pelement: impl Fn(TokenStream) -> IResult0<A>, 
+) -> impl Fn(TokenStream) -> IResult0<A> {
+    move |input: TokenStream| {
+        enclose::<Token, A, Token>(token(TokenType::OpenParen), &pelement, token(TokenType::CloseParen))(input)
+    }
+}
+
+pub fn optional_parens<A>(
+    pelement: impl Fn(TokenStream) -> IResult0<A>, 
+) -> impl Fn(TokenStream) -> IResult0<Option<A>> {
+    move |input: TokenStream| {
+        let (_, maybe_paren) = peek_token(TokenType::OpenParen)(input)?;
+        match maybe_paren {
+            Some(_) => {
+                let (input, a) = enclose::<Token, A, Token>(token(TokenType::OpenParen), &pelement, token(TokenType::CloseParen))(input)?;
+                Ok((input, Some(a)))
+            },
+            None => Ok((input, None)),
+        }
+    }
+}
+
+pub fn brackets<A>(
+    pelement: impl Fn(TokenStream) -> IResult0<A>, 
+) -> impl Fn(TokenStream) -> IResult0<A> {
+    move |input: TokenStream| {
+        enclose::<Token, A, Token>(token(TokenType::OpenBracket), &pelement, token(TokenType::CloseBracket))(input)
+    }
+}
+
+pub fn optional_brackets<A>(
+    pelement: impl Fn(TokenStream) -> IResult0<A>, 
+) -> impl Fn(TokenStream) -> IResult0<Option<A>> {
+    move |input: TokenStream| {
+        let (_, maybe_paren) = peek_token(TokenType::OpenBracket)(input)?;
+        match maybe_paren {
+            Some(_) => {
+                let (input, a) = enclose::<Token, A, Token>(token(TokenType::OpenBracket), &pelement, token(TokenType::CloseBracket))(input)?;
+                Ok((input, Some(a)))
+            },
+            None => Ok((input, None)),
+        }
+    }
+}
+
+pub fn curly_braces<A>(
+    pelement: impl Fn(TokenStream) -> IResult0<A>, 
+) -> impl Fn(TokenStream) -> IResult0<A> {
+    move |input: TokenStream| {
+        enclose::<Token, A, Token>(token(TokenType::OpenCurly), &pelement, token(TokenType::CloseCurly))(input)
+    }
+}
+
+pub fn possibly_empty_relaxed_paren_vector<A>(
+    pelement: impl Fn(TokenStream) -> IResult0<A>, 
+) -> impl Fn(TokenStream) -> IResult0<Vec<A>> {
+    move |input: TokenStream| {
+        let (input, maybe_vec)= optional_parens(relaxed_delimited_vector(&pelement, token(TokenType::Comma)))(input)?;
+        match maybe_vec {
+            Some(xs) => Ok((input, xs)),
+            None => Ok((input, vec![])),
+        }
+    }
+}
+
+pub fn possibly_empty_relaxed_bracket_vector<A>(
+    pelement: impl Fn(TokenStream) -> IResult0<A>, 
+) -> impl Fn(TokenStream) -> IResult0<Vec<A>> {
+    move |input: TokenStream| {
+        let (input, maybe_vec)= optional_brackets(relaxed_delimited_vector(&pelement, token(TokenType::Comma)))(input)?;
+        match maybe_vec {
+            Some(xs) => Ok((input, xs)),
+            None => Ok((input, vec![])),
         }
     }
 }

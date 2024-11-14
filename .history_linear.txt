@@ -1,46 +1,4 @@
 #V2
-[1, 2]
-+[5, 3]
-[+[5, 6], 2]
-#foo [1,2,3]
-#foo []
-fn f[x] { %x }
-match #zero [] { #zero[] . [] }
-match #zero [] { #zero[] . #zero[] }
-match #zero [] { #zero[] . [#zero[], #zero[]] }
-match #zero [] { #zero[] . [#zero[], #zero[]]  | #succ n . %n }
-match #succ #zero [] { #zero[] . [#zero[], #zero[]]  | #succ n . %n }
-match #succ #zero [] { #zero[] . [#zero[], #zero[]]  | #succ n . [%n] }
-match #succ #zero [] { #zero[] . [#zero[], #zero[]]  | #succ n . %n }
-match #succ #zero [] { #zero[] . [#zero[], #zero[]]  | #succ n . [%n] }
-obj {. #foo[] . 123 }
-incrementing_server[]
-send[incrementing_server[], #stop[]]
-send[incrementing_server[], #apply[5]]
-==[5, 0]
-range-iter[5, 0]
-dup_nat[5]
-dup[5]
-dup[#cons[5, #nil[]]]
-range-iter[5, 0]
-incrementing_server[]
-map[incrementing_server[], range-iter[5, 0]]
-map-server[incrementing_server[], range-iter[5, 0]]
-range-iter[5, 0]
-map-server[incrementing_server[], range-iter[5, 0]]
-incrementing-server[]
-map-server[incrementing-server[], range-iter[5, 0]]
-map-server[incrementing-server[], range-iter[8, 0]]
-map-server[incrementing-server[], range-iter[5, 0]]
-incrementing-server[]
-fib[5]
-fib[0, 1]
-send[fib[0, 1], #next[]]
-send[fib[1, 2], #next[]]
-send[fib[1, 1], #next[]]
-send[fib[1, 2], #next[]]
-send[fib[2, 5], #next[]]
-send[fib[2, 3], #next[]]
 send[fib[3, 5], #next[]]
 id[123]
 [+[5, 6], 2]
@@ -97,5 +55,47 @@ let { [x, [y, z]] = [20, [30, 40]] . [%y, %x, %z] }
 match [20, [30, 40]] { [x, [y, z]] . [%y, %x, %z] }
 let { [x, y] = [20, 30] . [%y, %x] }
 let { [x, [y, z]] = [20, [30, 40]] . [%y, %x, %z] }
+let { [[[x]], [y, z]] = [[[20]], [30, 40]] . [%y, %x, %z] }
+match [20, [30, 40]] { [x, [y, z]] . [%y, %x, %z] }
+[+[5, 6], 2]
+fn mul_5[x] { *[%x, 5] }
+mul_5[6]
+square[5]
+send[example_tuple_0[], #fst[]]
+example_tuple_0[]
+#fst[]
+let { x = 123 . %x }
+let { x = 123 . move x }
+let { x = 123 . [clone x, %x] }
+let { x = 123 . [clone x, move x] }
+let { x = 123 . [%x, clone x] }
+let { x = 123 . [] }
+let { x = 123 . drop x . [] }
+example_tuple_1[]
+range-iter[5, 0]
+range-iter-simpler[5, 0]
+fn f[x] { %x }
+obj {. #foo[] . 123 }
+incrementing-server[]
+send[incrementing_server[], #apply[5]]
+send[incrementing-server[], #apply[5]]
+==[5, 0]
+incrementing-server[]
+range-iter[5, 0]
+map-server[incrementing-server[], range-iter[5, 0]]
+fib[5, 0]
+dup_nat[5]
+dup[#cons[5, #nil[]]]
+dup_nat[#zero[]]
+dup_nat[#succ[#zero[]]]
+dup_nat[#succ#zero[]]
+dup_nat[#succ #zero[]]
+dup_nat[#succ#zero[]]
+dup_nat[#succ#succ#zero[]]
+dup[#cons[5, #nil[]]]
+send[fib[3, 5], #next[]]
+observe-stream[fib[0, 1], 0]
+observe-stream[fib[0, 1], 10]
+let { [x, y] = [20, 30] . [%y, %x] }
 let { [[[x]], [y, z]] = [[[20]], [30, 40]] . [%y, %x, %z] }
 match [20, [30, 40]] { [x, [y, z]] . [%y, %x, %z] }
