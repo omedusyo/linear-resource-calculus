@@ -1,14 +1,4 @@
 #V2
-cart let { (x, y) = (123, 512) . ($y) }
-cart let { (x, y) = (123, 512) . $y }
-lin let { [x, y] = [123, 512] . [$y, $x] }
-lin let { [x, y] = [123, 512] . [%y, %x] }
-lin let { [x, [y, z]] = [123, [512, 32]] . [%y, %x] }
-lin let { [x, [y, z]] = [123, [512, 32]] . [%y, %x, %z] }
-lin [123, [512, 32]]
-lin let { [x, [y, z]] = [123, [512, 32]] . [%y, %x, %z] }
-lin let { [[[x]], [y, z]] = [[[123]], [512, 32]] . [%y, %x, %z] }
-lin let { [[[x]], [y, z]] = [[[123]], [512, 32]] . [%y, %x, %z, %z] }
 lin let { [[[x]], [y, z]] = [[[123]], [512, 32]] . [%y, %x, clone z, %z] }
 lin let { [[[x]], [y, z]] = [[[123]], [512, 32]] . [%y, %x, %z] }
 cart let { a = 123 . +($a, 1) }
@@ -99,3 +89,13 @@ lin pyth(3,4)[]
 lin not[#T[]]
 cart fct(5)
 lin id[5]
+lin observe-stream[fib[0, 1], 10]
+lin observe-stream[fib, 10]
+cart pyth(3, 4)
+lin dup[3]
+lin +[1, 1]
+lin id[5]
+cart id(123)
+cart one-two-three()
+lin one-two-three
+cart huh

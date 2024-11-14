@@ -268,6 +268,8 @@ match [20, [30, 40]] { [x, [y, z]] . [%y, %x, %z] }
 
 cargo run repl combined
 
+cargo run repl combined --load program3.pmd.combined
+
 lin 123
 
 lin +[1,2]
@@ -302,9 +304,7 @@ cart let { x = thunk { +[123, 5] } . ($x, $x) }
 
 lin force[let { x = thunk { +[123, 5] } . $x }]
 
-cargo run repl combined
-
-:load program3.pmd.combined
+cargo run repl combined --load program3.pmd.combined
 
 :list fn
 
@@ -319,8 +319,6 @@ lin pyth(3,4)[]
 
 lin id()[5]
 
-:load program3.pmd.combined
-
 lin id[5]
 
 cart id(123)
@@ -331,8 +329,6 @@ lin one-two-three
 
 cart huh
 
-:r
-
 cart pyth(3, 4)
 
 lin dup[3]
@@ -341,9 +337,7 @@ lin let { x = 123 . %x }
 
 lin let-cart { x = 123 . $x }
 
-lin observe-stream[fib[0, 1], 10]
+lin observe-stream[fib, 10]
 
 cargo build
-
-
 

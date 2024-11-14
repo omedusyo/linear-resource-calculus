@@ -49,6 +49,14 @@ impl CliSubcommandRepl {
             Self::Combined { .. } => Calculus::Combined,
         }
     }
+
+    fn file_to_load(&self) -> Option<&str> {
+        match self {
+            Self::Cartesian { load, .. } => load.as_deref(),
+            Self::Linear { load, .. } => load.as_deref(),
+            Self::Combined { load, .. } => load.as_deref(),
+        }
+    }
 }
 
 // ===Repl===
@@ -60,20 +68,22 @@ type IResult0<'a, O> = Result<(TokenStream<'a>, O), nom::Err<nom::error::Error<&
 fn repl(cli_subcommand_repl: CliSubcommandRepl) -> rustyline::Result<()> {
     use Calculus::*;
     let mode = cli_subcommand_repl.to_calculus_mode();
+    let file = cli_subcommand_repl.file_to_load();
     match mode {
         Cartesian => {
             let mut repl = CartesianRepl::new()?;
-            repl.start_loop()
+            repl.start_loop(file)
         },
         Linear => {
             let mut repl = LinearRepl::new()?;
-            repl.start_loop()
+            repl.start_loop(file)
         },
         Combined => {
             let mut repl = CombinedRepl::new()?;
-            repl.start_loop()
+            repl.start_loop(file)
         },
     }
+    Ok(())
 }
 
 

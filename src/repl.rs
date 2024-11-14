@@ -42,14 +42,25 @@ pub trait Repl {
     fn current_file_mut(&mut self) -> &mut Option<Rc<String>>;
     fn history_file_name(&self) -> &'static str;
 
-    fn start_loop(&mut self) -> rustyline::Result<()> {
+    fn start_loop(&mut self, file_name: Option<&str>) {
+        match file_name {
+            Some(file_name) => {
+                match self.load_file(Rc::new(file_name.to_string())) {
+                    Some(()) => {},
+                    None => return (),
+                }
+            },
+            None => {}
+        }
         loop {
             let readline = self.editor_mut().readline("> ");
             match readline {
                 Ok(line) => {
                     match parse_line(&line) {
                         Ok((_, msg)) => {
-                            self.update(msg);
+                            // Note that we're not crashing on error.
+                            // The error should be already handled
+                            let _ = self.update(msg);
                         },
                         Err(e) => {
                             println!("Parsing Error: {:?}", e);
@@ -70,12 +81,11 @@ pub trait Repl {
                 }
             }
         }
-        self.save_history()?;
+        self.save_history();
 
-        Ok(())
     }
 
-    fn update(&mut self, msg: Msg<'_>)  {
+    fn update(&mut self, msg: Msg<'_>) {
         let interpreter: &mut Self::Interpreter = self.interpreter_mut();
         match msg {
             Msg::ExpressionStringReceived(input) => {
@@ -88,7 +98,7 @@ pub trait Repl {
                         let _ = self.editor_mut().add_history_entry(input0);
                     },
                     Err(err) => {
-                        println!("{}", interpreter.show_parse_error(err))
+                        println!("{}", interpreter.show_parse_error(err));
                     }
                 }
             },
@@ -121,27 +131,27 @@ pub trait Repl {
                     println!(""); // flushes stdout
                 },
                 Command::LoadProgram { file_name } => {
-                    self.load_file(Rc::new(file_name))
+                    let _ = self.load_file(Rc::new(file_name));
                 },
                 Command::Reload => {
                     match self.current_file() { 
                         Some(current_file) => {
-                            self.load_file(current_file)
+                            let _ = self.load_file(current_file);
                         },
                         None => {
-                            println!("Nothing to reload.")
+                            println!("Nothing to reload.");
                         }
                     }
                 },
                 Command::PrintHello => {
-                    println!("hello?")
+                    println!("hello?");
                 },
             },
             Msg::EmptyLineReceived => {},
         }
     }
 
-    fn load_file(&mut self, file_name: Rc<String>) {
+    fn load_file(&mut self, file_name: Rc<String>) -> Option<()> {
         let file_name_copy = file_name.clone();
         let interpreter: &mut Self::Interpreter = self.interpreter_mut();
         match fs::read_to_string(&*file_name) {
@@ -153,22 +163,31 @@ pub trait Repl {
                     Ok(()) => {
                         *self.current_file_mut() = Some(file_name_copy.clone());
                         println!("Ok.");
+                        Some(())
                     },
                     Err(err) => {
                         println!("{}", interpreter.show_parse_error(err));
+                        None
                     }
                 }
             },
             Err(err) => {
                 dbg!(err);
+                None
             },
         }
     }
 
 
-    fn save_history(&mut self) -> rustyline::Result<()> {
+    fn save_history(&mut self) {
         let history_file_name = self.history_file_name();
-        self.editor_mut().save_history(history_file_name)
+        // We're not printing the failure to save history.
+        match self.editor_mut().save_history(history_file_name) {|
+            Ok(_) => {},
+            Err(err) => {
+                println!("Failed to save history: {:?}", err)
+            }
+        }
     }
 }
 
