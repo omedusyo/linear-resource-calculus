@@ -1,0 +1,104 @@
+* You could add tagged operator. Then `#pair(20, 30)` would be syntactic sugar for `tagged pair (20, 3)`.
+  This operator takes in a statically known tag value and a cartesian value, and produces a new cartesian value.
+  So this is some sort of action on values...
+  Also `(10, 20, 30, 40)` could be syntactic sugar for `tuple 10 20 30 40`.
+  This `tuple` ofcourse must have fixed static size.
+  What are these static tags? Could we generalize them as "static" parameters to functions?
+  Some sort of limited form of macro?
+
+  Maybe this should be
+    tuple(10, 20, 30, 40) actually...
+  or tag(foo, 123)
+
+* For objects,
+  replace
+    send(obj, msg)  where msg is an expression that evalutes to a tagged value
+  with
+   @msg-name obj where msg-name is just a tag.
+  e.g.
+   @snd @fst tuple
+  This seems like a big restriction - message names have to basically be known at compile time.
+  But it is the same as for constructors #cons ... The payload of the messages can still be dynamically generated.
+
+  Then we could write
+   @hd @tl @tl @tl stream
+  But we'll have to separate linear closure from objects...
+  Nototation for closure application?
+    app(f, 123)
+
+   Note: @ like # is an operator whose first argument is a static tag.
+   Should we make that explicit  @msg-name[obj] ? Nah... introduce more explicit send[msg-name, obj]
+
+   let [response0, server] = app[@get server, 123];
+   let [response1, server] = app[@get server, 512];
+
+
+  fn lin fib[x, y] { obj { x = %x, y = %y .
+  | @next . [clone x, fib[clone y, +[%x, %y]]]
+  }}
+
+  fn lin observe-stream-loop[stream, i, n] { match ==[clone i, clone n] {
+  | #T[] .
+      drop i .
+      drop n .
+      #cont[%stream]
+  | #F[] .
+      let { [x, stream] = @next %stream .
+        #cons[%x, observe-stream-loop[%stream, +[%i, 1], %n]]
+      }
+  }}
+
+
+  These objects still capture resources for their branches...
+  What about linear closures? Seems like they would have to capture resources in exactly the same way...
+  This is very heavy notationally
+
+  Would really be nice to combine     application with sending
+  @ff obj arg
+  @msg-name obj                  ~>     send msg-name obj            ~>   send msg-name[obj]   // is there syntactic ambiguity? Yes... what if obj is a tuple? But that doesn't make sense. So actually it seems fine...
+  @msg-name [obj]                ~>     send msg-name[obj]           ~>   send msg-name[obj]
+  @msg-name [obj, payload]       ~>     send msg-name[obj, payload]  ~>   app[send msg-name[obj], payload]
+  @msg-name [obj, arg0, arg1]    ~>     send msg-name[obj, arg0, arg1] ~>  app[send msg-name[obj], arg0, arg1]
+
+  Hmm, why not just do
+
+  obj { x = 123 . y = 53 .
+  | @msg 
+  }
+
+
+
+// Yep, this would be acceptible
+  @tl[@tl[@tl[obj]]]
+
+  Hmm, maybe we should have a syntactic sugar for objects/closures, where by default they capture the whole environment...
+  But if you want to be refined
+
+  Wait, what about tuple? Shouldn't we specify which branch gets which resources? nah...
+  tuples are eagerly evaluated... that's why you don't have to do this explicit separation of resources... unless...
+  one of the components is an linear object/closure
+* ===Environment Splitting===
+  linear let expression acts like some sort of subtraction...
+  it takes a bunch stuff from the current environment,
+  makes a new environment... i.e. it is the basic environment capturing/splitting construct.
+
+  Note that
+    fn lin f[a, b, c, d] {
+      [[%a, %b], [%c, %d]]
+    }
+  is the same as
+    fn lin f[a, b, c, d] {
+      [let { a = %a, b = %b . [%a, %b] }, let { c = %c, d = %d . [%c, %d] } ]
+    }
+  But when the components of the tensor are objects... then you actually have to indicate which ones you want to use.
+  ... ok, so when evaluating obj { ... } or a closure, it just captures the whole environment... That's why often
+  you'll have to prefix the closure/object construction with a let { ... }
+  TODO: Should it really be called let?
+  Maybe move { ... } would be better? Or cut? As in "cutting" stuff out... This is a nice coincidence from proof theory!
+  cut { x = 123, y = 512 . ... }
+
+  cut { x = 0, y = 1 . obj { @msg0 . body0 | @msg1 [z] . body1 }}
+  obj { #fst . component0 | #snd . component1 }
+
+  Hmm, this movement happens often, so we could introduce a syntactic sugar
+  cut { x, y . body } ~> cut { x = move x, y = move y . body }
