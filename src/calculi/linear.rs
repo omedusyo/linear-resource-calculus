@@ -606,7 +606,7 @@ pub enum PatternMatchErrror {
 
 // ===Evaluation===
 pub fn eval_start(program: Program, e: Expression) -> Result<(Program, Value), Error> {
-    let (program, env, value) = eval(program, Env::new(), e)?;
+    let (env, value) = eval(&program, Env::new(), e)?;
     if env.is_empty() {
         Ok((program, value))
     } else {
@@ -615,15 +615,14 @@ pub fn eval_start(program: Program, e: Expression) -> Result<(Program, Value), E
 }
 
 // Both the environment and the expression should be completely consumed to construct the final value.
-fn eval(program: Program, env: Env, e: Expression) -> Result<(Program, Env, Value), Error> {
+fn eval(program: &Program, env: Env, e: Expression) -> Result<(Env, Value), Error> {
     use Expression0::*;
     match *e.0 {
-        Int(x) => Ok((program, env, Value::Int(x))),
+        Int(x) => Ok((env, Value::Int(x))),
         OperationApplication1(code, e0) => {
-            let (program, env, val0) = eval(program, env, e0)?;
+            let (env, val0) = eval(program, env, e0)?;
             use OperationCode::*;
             Ok((
-                program,
                 env,
                 match code {
                     Clone => {
@@ -639,13 +638,12 @@ fn eval(program: Program, env: Env, e: Expression) -> Result<(Program, Env, Valu
             ))
         },
         OperationApplication2(code, e0, e1) => {
-            let (program, env, val0) = eval(program, env, e0)?;
-            let (program, env, val1) = eval(program, env, e1)?;
+            let (env, val0) = eval(program, env, e0)?;
+            let (env, val1) = eval(program, env, e1)?;
             match (val0, val1) {
                 (Value::Int(x0), Value::Int(x1)) => {
                     use OperationCode::*;
                     Ok((
-                        program,
                         env,
                         match code {
                             Add => Value::Int(x0 + x1),
@@ -666,41 +664,37 @@ fn eval(program: Program, env: Env, e: Expression) -> Result<(Program, Env, Valu
         Call(fn_name, args) => {
             let mut values: Vec<Value> = Vec::with_capacity(args.len());
             let mut env = env;
-            let mut program = program;
             for arg in args {
-                let (program0, env0, val) = eval(program, env, arg)?;
-                program = program0;
+                let (env0, val) = eval(program, env, arg)?;
                 env = env0;
                 values.push(val);
             }
-            let (program, val) = apply_function(program, fn_name, values)?;
-            Ok((program, env, val))
+            let val = apply_function(program, fn_name, values)?;
+            Ok((env, val))
         }
         Tagged(tag, e) => {
-            let (program, env, val) = eval(program, env, e)?;
-            Ok((program, env, Value::Tagged(tag, Box::new(val))))
+            let (env, val) = eval(program, env, e)?;
+            Ok((env, Value::Tagged(tag, Box::new(val))))
         },
         Tuple(args) => {
-            let mut program = program;
             let mut env = env;
             let mut values: Vec<Value> = Vec::with_capacity(args.len());
             for arg in args {
-                let (program0, env0, val) = eval(program, env, arg)?;
-                program = program0;
+                let (env0, val) = eval(program, env, arg)?;
                 env = env0;
                 values.push(val);
             }
-            Ok((program, env, Value::Tuple(values)))
+            Ok((env, Value::Tuple(values)))
         },
         VarMove(var_name) => {
             // I need to take out the binding completely out of the environment
             let (value, env) = env.move_(var_name)?;
-            Ok((program, env, value))
+            Ok((env, value))
         },
         VarClone(var_name) => {
             // This looks up the var in the environment, then attempts a clone.
             let (value, env) = env.clone_(var_name)?;
-            Ok((program, env, value))
+            Ok((env, value))
         },
         VarDrop(var_name, expr) => {
             // This looks up the var in the environmeent, then attempts to drop the var.
@@ -708,11 +702,11 @@ fn eval(program: Program, env: Env, e: Expression) -> Result<(Program, Env, Valu
             eval(program, env, expr)
         },
         Match { arg, branches } => {
-            let (program, env, arg_value) = eval(program, env, arg)?;
+            let (env, arg_value) = eval(program, env, arg)?;
             apply_msg_to_branches(program, env, branches, arg_value)
         },
         LetMove { arg, var, body } => {
-            let (program, env, arg_value) = eval(program, env, arg)?;
+            let (env, arg_value) = eval(program, env, arg)?;
             let env = env.extend(var, arg_value);
             eval(program, env, body)
         },
@@ -724,17 +718,17 @@ fn eval(program: Program, env: Env, e: Expression) -> Result<(Program, Env, Valu
         // This is only a problem in a dynamic language, right? When we have types, the parts of
         // the environment that are captured can be known statically.
         Object { captured_bindings, branches } => {
-            let (program, env, captured_env) = eval_bindings(program, env, captured_bindings)?;
-            Ok((program, env, Value::ClosureObject { captured_env, branches }))
+            let (env, captured_env) = eval_bindings(program, env, captured_bindings)?;
+            Ok((env, Value::ClosureObject { captured_env, branches }))
         },
         Send(e0, e1) => {
-            let (program, env, obj) = eval(program, env, e0)?;
+            let (env, obj) = eval(program, env, e0)?;
             match obj {
                 Value::ClosureObject { captured_env, branches } => {
-                    let (program, env, msg) = eval(program, env, e1)?;
-                    let (program, captured_env, val) = apply_msg_to_branches(program, captured_env, branches, msg)?;
+                    let (env, msg) = eval(program, env, e1)?;
+                    let (captured_env, val) = apply_msg_to_branches(program, captured_env, branches, msg)?;
                     if captured_env.is_empty() {
-                        Ok((program, env, val))
+                        Ok((env, val))
                     } else {
                         Err(Error::UnconsumedResources(captured_env))
                     }
@@ -747,16 +741,16 @@ fn eval(program: Program, env: Env, e: Expression) -> Result<(Program, Env, Valu
 
 // We return `(Env, Env)`.
 // The first component is what remains of `env`, while the second is the result of evaluating `bindings`
-fn eval_bindings(program: Program, env: Env, bindings: Bindings) -> Result<(Program, Env, Env), Error> {
+fn eval_bindings(program: &Program, env: Env, bindings: Bindings) -> Result<(Env, Env), Error> {
     use Bindings0::*;
     match *bindings.0 {
-        Empty => Ok((program, env, Env::new())),
+        Empty => Ok((env, Env::new())),
         Push { var, expr, parent } => {
-            let (program, env, bindings_env_parent) = eval_bindings(program, env, parent)?;
+            let (env, bindings_env_parent) = eval_bindings(program, env, parent)?;
             // TODO: Would be nice to have dependent bindings, but it's not trivial to implement.
-            let (program, env, val) = eval(program, env, expr)?;
+            let (env, val) = eval(program, env, expr)?;
             let bindings_env_parent = bindings_env_parent.extend(var, val);
-            Ok((program, env, bindings_env_parent))
+            Ok((env, bindings_env_parent))
         },
     }
 }
@@ -815,7 +809,7 @@ impl TuplePatternBranches {
 //     }
 //   }
 // }
-fn apply_msg_to_branches(program: Program, env: Env, branches: Vec<PatternBranch>, val: Value) -> Result<(Program, Env, Value), Error> {
+fn apply_msg_to_branches(program: &Program, env: Env, branches: Vec<PatternBranch>, val: Value) -> Result<(Env, Value), Error> {
     if branches.len() == 0 { return Err(Error::UnableToFindMatchingPattern) }
     if branches.len() == 1 && matches!(branches[0].pattern, Pattern::Variable(_)) { // non-destructive read
         // Can't just do branches[0]... that has ownership problems for some reason.
@@ -864,11 +858,11 @@ fn apply_msg_to_branches(program: Program, env: Env, branches: Vec<PatternBranch
         },
     }
 }
-fn apply_tuple_to_branch(program: Program, env: Env, patterns: Vec<TuplePattern>, body: Expression, values: Vec<Value>) -> Result<(Program, Env, Value), Error> {
-    let (program, env) = bind_tuple_to_tuple_pattern(program, env, patterns, values)?;
+fn apply_tuple_to_branch(program: &Program, env: Env, patterns: Vec<TuplePattern>, body: Expression, values: Vec<Value>) -> Result<(Env, Value), Error> {
+    let env = bind_tuple_to_tuple_pattern(program, env, patterns, values)?;
     eval(program, env, body)
 }
-fn bind_tuple_to_tuple_pattern(mut program: Program, mut env: Env, patterns: Vec<TuplePattern>, values: Vec<Value>) -> Result<(Program, Env), Error> {
+fn bind_tuple_to_tuple_pattern(program: &Program, mut env: Env, patterns: Vec<TuplePattern>, values: Vec<Value>) -> Result<Env, Error> {
     if patterns.len() != values.len() {
         return Err(Error::InvalidPatternMatch(PatternMatchErrror::TupleSizesDidNotMatch))
     }
@@ -880,8 +874,7 @@ fn bind_tuple_to_tuple_pattern(mut program: Program, mut env: Env, patterns: Vec
             TuplePattern::Tuple(patterns) => {
                 match val {
                     Value::Tuple(values) => {
-                        let (program0, env0) = bind_tuple_to_tuple_pattern(program, env, patterns, values)?;
-                        program = program0;
+                        let env0 = bind_tuple_to_tuple_pattern(program, env, patterns, values)?;
                         env = env0;
                     },
                     _ => return Err(Error::InvalidPatternMatch(PatternMatchErrror::AttemptToMatchNonTupleToTuplePattern)),
@@ -889,10 +882,10 @@ fn bind_tuple_to_tuple_pattern(mut program: Program, mut env: Env, patterns: Vec
             },
         }
     }
-    Ok((program, env))
+    Ok(env)
 }
 
-fn apply_function(program: Program, fn_name: FunctionName, arg_values: Vec<Value>) -> Result<(Program, Value), Error> {
+fn apply_function(program: &Program, fn_name: FunctionName, arg_values: Vec<Value>) -> Result<Value, Error> {
     let Some(fn_def) = program.get_clone_of_function_definition(fn_name.clone()) else { return Err(Error::FunctionLookupFailure(fn_name)) };
     let num_of_arguments: usize = fn_def.parameters.len();
     if num_of_arguments != arg_values.len() {
@@ -900,9 +893,9 @@ fn apply_function(program: Program, fn_name: FunctionName, arg_values: Vec<Value
     }
     
     let env = Env::new().extend_many(fn_def.parameters.into_iter().zip(arg_values));
-    let (program, env, val) = eval(program, env, fn_def.body)?;
+    let (env, val) = eval(program, env, fn_def.body)?;
     if env.is_empty() {
-        Ok((program, val))
+        Ok(val)
     } else {
         Err(Error::UnconsumedResources(env))
     }

@@ -226,7 +226,6 @@ obj {. #foo[] . 123 }
 
 send[incrementing-server[], #apply[5]]
 
-map_server()
 
 ==[5, 0]
 
