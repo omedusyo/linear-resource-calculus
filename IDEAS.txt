@@ -1,0 +1,11 @@
+* You could add tagged operator. Then `#pair(20, 30)` would be syntactic sugar for `tagged pair (20, 3)`.
+  This operator takes in a statically known tag value and a cartesian value, and produces a new cartesian value.
+  So this is some sort of action on values...
+  Also `(10, 20, 30, 40)` could be syntactic sugar for `tuple 10 20 30 40`.
+  This `tuple` ofcourse must have fixed static size.
+  What are these static tags? Could we generalize them as "static" parameters to functions?
+  Some sort of limited form of macro?
+
+  Maybe this should be
+    tuple(10, 20, 30, 40) actually...
+  or tag(foo, 123)

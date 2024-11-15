@@ -103,4 +103,3 @@ fn observe-stream-loop[stream, i, n] { match ==[clone i, clone n] {
       #cons[%x, observe-stream-loop[%stream, +[%i, 1], %n]]
     }
 }}
-

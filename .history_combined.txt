@@ -5,31 +5,6 @@ lin +[*[3, 4], 1]
 cart +(*(3, 4), 1)
 cart #foo()
 lin #foo[]
-cart let { x = 123 . read x }
-cart let { (x, y) = (123, 512) . ($y, $x, $x) }
-cart let { (x, y) = (123, 512) . $y }
-cart let { (((x)), (y, z)) = (((123)), (512, 32)) . ($y, $x, $z, $z, $x) }
-lin let { [[[x]], [y, z]] = [[[123]], [512, 32]] . [%y, %x, %z] }
-cart let { a = 123 . +($a, 1) }
-lin let { a = 123 . +[%a, 1] }
-cart let { x = thunk { 123 } . $x }
-cart let { x = thunk { +[123, 5] } . ($x, $x) }
-lin force[let { x = thunk { +[123, 5] } . $x }]
-cart pyth(3,4)
-lin let { a = 123 . +[%a, 1] }
-lin force[let { x = thunk { +[123, 5] } . $x }]
-lin pyth(3,4)[]
-lin id()[5]
-cart pyth(3, 4)
-lin dup[3]
-lin let { x = 123 . %x }
-lin let-cart { x = 123 . $x }
-lin 123
-lin +[1,2]
-lin +[*[3, 4], 1]
-cart +(*(3, 4), 1)
-cart #foo()
-lin #foo[]
 lin pyth(3,4)[]
 lin id()[5]
 cart pyth(3, 4)
@@ -99,3 +74,28 @@ cart pyth(3, 4)
 lin dup[3]
 lin let { x = 123 . %x }
 lin let-cart { x = 123 . $x }
+lin not[#T[]]
+lin pyth(3,4)[]
+cart fct(5)
+lin pyth(3,4)[]
+lin id()[5]
+lin id[5]
+cart id(123)
+cart one-two-three()
+lin one-two-three
+cart huh
+cart pyth(3, 4)
+lin dup[3]
+lin let { x = 123 . %x }
+lin let-cart { x = 123 . $x }
+lin observe-stream[fib, 10]
+lin force[let { x = thunk { +[123, 5] } . $x }]
+lin force[let { x = thunk { [1, 2] } . $x }]
+lin force[let { x = thunk { [10, 20] } . $x }]
+lin force[let { x = thunk { 10 } . $x }]
+cart let { x = thunk[123] . $x }
+cart let { x = thunk[ +[123, 5] ] . ($x, $x) }
+cart let { x = thunk[123] . $x }
+cart let { x = thunk[ +[123, 5] ] . ($x, $x) }
+lin force(let { x = thunk[ +[123, 5] ] . $x })
+lin force(let { x = thunk[ 10 ] . $x })

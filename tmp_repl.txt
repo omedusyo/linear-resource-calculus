@@ -298,11 +298,35 @@ cart let { a = 123 . +($a, 1) }
 lin let { a = 123 . +[%a, 1] }
 
 
-cart let { x = thunk { 123 } . $x }
+cart let { x = thunk[123] . $x }
 
-cart let { x = thunk { +[123, 5] } . ($x, $x) }
+cart let { x = thunk[ +[123, 5] ] . ($x, $x) }
 
-lin force[let { x = thunk { +[123, 5] } . $x }]
+
+lin force(let { x = thunk[ +[123, 5] ] . $x })
+
+lin force(let { x = thunk[ 10 ] . $x })
+
+This crashes with
+AttemptToForceThunkWhileMultiplyOwned(LinearExpression(Int(10)))
+Why?
+Note sure this can be overcome... I think the problem might be that linear_eval takes ownership.
+But we have an Rc, so we can't get at the underlying value safely...
+Forcing should be just like spawning a new process... The code (even linear code) without captured resource is cartesian.
+So why not take it as a read-only reference?
+
+
+lin_eval( cart-env(),  lin-env[],  L::Force(C::Let { arg: C::Thunk(Rc::new(L::Int(10))), var: "x", body: $"x" })   )
+~>
+let cart_val = cart_eval(  cart-env(), &C::Let { arg: C::Thunk(Rc::new(L::Int(10))), var: "x", body: $"x" })
+            ~>  let lin_expr0 = C::Thunk(Rc::new(Lin::Int(10)))
+                let v = cart_eval(cart-env(), lin_expr0)
+                    ~> CVal::Thunk { captured_cartesian_env: cartEmptyEnv, body: linear_expr.clone() } // Ok, this thunk here is cloned. WAT. Ofcourse... the thunk still exists in the cartesian environment...
+               cart_eval(cart-env("x" = v)  , $"x"))
+
+
+
+
 
 cargo run repl combined --load program3.pmd.combined
 

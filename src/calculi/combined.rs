@@ -345,8 +345,8 @@ pub fn parse_cartesian_expression(input: TokenStream) -> IResult0<CartesianExpre
                     Ok((input, CartesianExpression::send(e0, e1)))
                 },
                 "thunk" => {
-                    // thunk { e }
-                    let (input, e) = curly_braces(parse_linear_expression)(input)?;
+                    // thunk[e]
+                    let (input, e) = brackets(parse_linear_expression)(input)?;
                     Ok((input, CartesianExpression::thunk(e)))
                 },
                 s => match identifier_to_operation_code(s) {
@@ -474,8 +474,8 @@ pub fn parse_linear_expression(input: TokenStream) -> IResult0<LinearExpression>
                     Ok((input, LinearExpression::send(e0, e1)))
                 },
                 "force" => {
-                    // force[%some_thunk]
-                    let (input, e) = brackets(parse_cartesian_expression)(input)?;
+                    // force($some_thunk_in_cartesian_mode)
+                    let (input, e) = parens(parse_cartesian_expression)(input)?;
                     Ok((input, LinearExpression::force(e)))
                 }
                 s => match identifier_to_operation_code(s) {
@@ -627,11 +627,18 @@ pub enum CartesianExpression0 {
     Match { arg: CartesianExpression, branches: Vec<CartesianPatternBranch> },
     VarLookup(VariableName),
     Let { arg: CartesianExpression, var: VariableName, body: CartesianExpression },
+    // TODO: Can you make this into  Rc<[Rc<CartesianPatternBranch>]>?
+    //       Or even Rc<[CartesianPatternBranch]>, but then you'd have to modify the
+    //       CartesianPatternBranch slightly, by introducing Rc for Pattern so it is cheap to
+    //       clone.
     Object { branches: Rc<Vec<CartesianPatternBranch>> },
     Send(CartesianExpression, CartesianExpression),
 
     // TODO: Is this a good name for this? Maybe `Freeze` would be better?
-    Thunk(LinearExpression), // This is the coinductive going up thing to which you can send a `force` message.
+    // TODO: The Rc is problematic. Why would it be there?
+    //       I guess the only reason is that it is eventually gona be passed in to the linear_eval.
+    //  Hmm, but it is consistent with Object definition above.
+    Thunk(Rc<LinearExpression>), // This is the coinductive going up thing to which you can send a `force` message.
 }
 
 impl CartesianExpression {
@@ -646,7 +653,7 @@ impl CartesianExpression {
     // TODO: The double Rc<_> here is very suspicious.
     fn object(branches: Vec<CartesianPatternBranch>) -> Self { Self(Rc::new(CartesianExpression0::Object { branches: Rc::new(branches) })) }
     fn send(obj: Self, msg: Self) -> Self { Self(Rc::new(CartesianExpression0::Send(obj, msg))) }
-    fn thunk(e: LinearExpression) -> Self { Self(Rc::new(CartesianExpression0::Thunk(e))) }
+    fn thunk(e: LinearExpression) -> Self { Self(Rc::new(CartesianExpression0::Thunk(Rc::new(e)))) }
 }
 
 // ==Linear==
@@ -741,17 +748,40 @@ pub enum Value {
     Cartesian(CartesianValue),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum CartesianValue {
     Int(i32),
-    Tagged(Tag, Box<CartesianValue>),
-    Tuple(Vec<CartesianValue>),
+    Tagged(Tag, Rc<CartesianValue>),
+    Tuple(Rc<[Rc<CartesianValue>]>),
     ClosureObject { captured_cartesian_env: CartesianEnv, branches: Rc<Vec<CartesianPatternBranch>> },
-    // TODO: How do I know that the `body` should be in Rc or Box?
-    // Thunk { captured_cartesian_env: CartesianEnv, body: LinearExpression }
-    // Thunk { captured_cartesian_env: CartesianEnv, body: Box<LinearExpression> }
-    Thunk { captured_cartesian_env: CartesianEnv, body: LinearExpression }
+    Thunk { captured_cartesian_env: CartesianEnv, body: Rc<LinearExpression> }
 }
+
+// ==Cartesian==
+#[derive(Debug, Clone)]
+pub struct CartesianEnv(Rc<CartesianEnv0>);
+
+#[derive(Debug)]
+pub enum CartesianEnv0 {
+    Empty,
+    Push { var: VariableName, value: CartesianValue, parent: CartesianEnv },
+}
+
+impl CartesianValue {
+    // This is also called a shallow copy. In implementation remember: this should no do recursion.
+    // It should be very fast!
+    fn duplicate_with_sharing(&self) -> Self {
+        use CartesianValue::*;
+        match self {
+            Int(x) => Int(*x),
+            Tagged(tag, val) => Tagged(tag.clone(), val.clone()),
+            Tuple(boxed_tuple) => Tuple(boxed_tuple.clone()),
+            ClosureObject { captured_cartesian_env, branches } => ClosureObject { captured_cartesian_env: captured_cartesian_env.clone(), branches: branches.clone() },
+            Thunk { captured_cartesian_env, body } => Thunk { captured_cartesian_env: captured_cartesian_env.clone(), body: body.clone() },
+        }
+    }
+}
+
 
 #[derive(Debug)]
 pub enum LinearValue {
@@ -759,7 +789,6 @@ pub enum LinearValue {
     Tagged(Tag, Box<LinearValue>),
     Tuple(Vec<LinearValue>), // Would be cool if we could use Box<[Value]>, since we don't need to resize
     ClosureObject { captured_env: LinearEnv, branches: Vec<LinearPatternBranch> },
-
     Cartesian(CartesianValue),
 }
 
@@ -775,7 +804,7 @@ impl LinearValue {
                 }
             },
             ClosureObject { .. } => todo!(), // this should crash
-            Cartesian(cart_val) => (), // Interesting. We don't have to do anything.
+            Cartesian(_cart_val) => (), // Interesting. We don't have to do anything.
         }
     }
 
@@ -799,7 +828,10 @@ impl LinearValue {
             },
             ClosureObject { .. } => todo!(), // this should crash
             // Note that the clone here is very cheap.
-            Cartesian(cart_val) => (Cartesian(cart_val.clone()), Cartesian(cart_val)) 
+            Cartesian(cart_val) => {
+                // TODO: clone
+                (Cartesian(cart_val.duplicate_with_sharing()), Cartesian(cart_val)) 
+            }
         }
     }
 }
@@ -862,15 +894,6 @@ impl fmt::Display for LinearValue {
 }
 
 // ===Env===
-// ==Cartesian==
-#[derive(Debug, Clone)]
-pub struct CartesianEnv(Rc<CartesianEnv0>);
-
-#[derive(Debug)]
-pub enum CartesianEnv0 {
-    Empty,
-    Push { var: VariableName, value: CartesianValue, parent: CartesianEnv },
-}
 
 impl CartesianEnv {
     fn new() -> Self { Self(Rc::new(CartesianEnv0::Empty)) }
@@ -881,7 +904,7 @@ impl CartesianEnv {
             Empty => Err(Error::VariableLookupFailure(var_name)),
             Push { var, value, parent } => {
                 if *var == var_name {
-                    Ok(value.clone())
+                    Ok(value.duplicate_with_sharing())
                 } else {
                     parent.get(var_name)
                 }
@@ -984,6 +1007,7 @@ pub enum Error {
     UnableToFindMatchingPattern,
     InvalidPatternMatch(PatternMatchErrror),
     UnconsumedResources(LinearEnv),
+    AttemptToForceThunkWhileMultiplyOwned(Rc<LinearExpression>),
     AttemptToSendMessageToNonObject(Value),
 }
 
@@ -1031,9 +1055,9 @@ fn cartesian_eval(program: &Program, env: &CartesianEnv, e: &CartesianExpression
                         Sub => Ok(CartesianValue::Int(x0 - x1)),
                         Mul => Ok(CartesianValue::Int(x0 * x1)),
                         Eq => if x0 == x1 {
-                            Ok(CartesianValue::Tagged(Tag::new("T".to_string()), Box::new(CartesianValue::Tuple(vec![]))))
+                            Ok(CartesianValue::Tagged(Tag::new("T".to_string()), Rc::new(CartesianValue::Tuple(Rc::new([])))))
                         } else {
-                            Ok(CartesianValue::Tagged(Tag::new("F".to_string()), Box::new(CartesianValue::Tuple(vec![]))))
+                            Ok(CartesianValue::Tagged(Tag::new("F".to_string()), Rc::new(CartesianValue::Tuple(Rc::new([])))))
                         },
                         Duplicate | Discard => todo!(),
                     }
@@ -1051,20 +1075,23 @@ fn cartesian_eval(program: &Program, env: &CartesianEnv, e: &CartesianExpression
         },
         Tagged(tag, e) => {
             let val = cartesian_eval(program, env, e)?;
-            Ok(CartesianValue::Tagged(tag.clone(), Box::new(val)))
+            Ok(CartesianValue::Tagged(tag.clone(), Rc::new(val)))
         },
         Tuple(args) => {
-            let mut values: Vec<CartesianValue> = Vec::with_capacity((&*args).len());
+            // TODO: Can you construct the tuple directly? Without going through the vector first?
+            let mut values: Vec<Rc<CartesianValue>> = Vec::with_capacity((&*args).len());
             for arg in &*args {
-                values.push(cartesian_eval(program, env, arg)?)
+                values.push(Rc::new(cartesian_eval(program, env, arg)?))
             }
-            Ok(CartesianValue::Tuple(values))
+            Ok(CartesianValue::Tuple(values.into()))
         },
         Match { arg, branches } => {
             let arg_value = cartesian_eval(program, env, arg)?;
-            cartesian_apply_msg_to_branches(program, env, branches, arg_value)
+            cartesian_apply_msg_to_branches(program, env, branches, &arg_value)
         },
-        VarLookup(var_name) => env.get(var_name.clone()),
+        VarLookup(var_name) => {
+            env.get(var_name.clone())
+        },
         Let { arg, var, body } => {
             let arg_value = cartesian_eval(program, env, arg)?;
             let env = env.clone().extend(var.clone(), arg_value);
@@ -1078,14 +1105,13 @@ fn cartesian_eval(program: &Program, env: &CartesianEnv, e: &CartesianExpression
             match obj {
                 CartesianValue::ClosureObject { captured_cartesian_env: captured_env, branches } => {
                     let msg = cartesian_eval(program, env, e1)?;
-                    cartesian_apply_msg_to_branches(program, &captured_env, &branches, msg)
+                    cartesian_apply_msg_to_branches(program, &captured_env, &branches, &msg)
                 },
                 obj => Err(Error::AttemptToSendMessageToNonObject(Value::Cartesian(obj))),
             }
         },
-
         Thunk(linear_expr) => {
-            // TODO: The clone is expensive... Something is wrong.
+            // TODO: I really don't like that we have an Rc here.
             Ok(CartesianValue::Thunk { captured_cartesian_env: env.clone(), body: linear_expr.clone() })
         }
     }
@@ -1222,17 +1248,36 @@ fn linear_eval(program: &Program, cartesian_env: &CartesianEnv, env: LinearEnv, 
 
         Force(cartesian_expr) => {
             // We need to evaluate this is empty linear environment, right?
-            // This better be a frozen linear object (that doesn't use resources, but it still
+            // This better be a frozen linear object (that doesn't use resources, but it is still
             // weird ... it could be something in [Bool⊸ Bool], which is a process that need not
-            // capture a resource, but how the hell can it be copied?
+            // capture a resource, but how the hell can it be copied?)
             let cartesian_val = cartesian_eval(program, cartesian_env, &cartesian_expr)?;
             match cartesian_val {
                 CartesianValue::Thunk { captured_cartesian_env, body } => {
-                    let (new_env, val) = linear_eval(program, &captured_cartesian_env, LinearEnv::new(), body)?;
-                    if new_env.is_empty() {
-                        Ok((env, val))
-                    } else {
-                        Err(Error::UnconsumedResources(new_env))
+                    // example
+                    //   lin force[let { x = thunk { 10 } . $x }]
+                    // In the above example the thunk  is in the cartesian environment.
+                    // This is highly problematic.
+                    //
+                    // TODO: body is an Rc'd linear expression.
+                    //       To evaluate it, we must take ownership of it...
+                    //       Is this really the right thing?
+                    // Actually think thunk still could be in the cartesian environment (and it
+                    // probably is!). I think the correct thing must be to rip out of the cartesian
+                    // environment
+                    
+                    match Rc::try_unwrap(body) {
+                        Ok(body) => {
+                            let (new_env, val) = linear_eval(program, &captured_cartesian_env, LinearEnv::new(), body)?;
+                            if new_env.is_empty() {
+                                Ok((env, val))
+                            } else {
+                                Err(Error::UnconsumedResources(new_env))
+                            }
+                        },
+                        Err(body) => {
+                            Err(Error::AttemptToForceThunkWhileMultiplyOwned(body))
+                        },
                     }
                 },
                 _ => todo!() // crash
@@ -1288,13 +1333,13 @@ fn linear_apply_function(program: &Program, fn_def: LinearFunctionDefinition, ca
 
 // ===Send Message===
 // ==Cartesian==
-fn cartesian_apply_msg_to_branches(program: &Program, env: &CartesianEnv, branches: &[CartesianPatternBranch], val: CartesianValue) -> Result<CartesianValue, Error> {
+fn cartesian_apply_msg_to_branches(program: &Program, env: &CartesianEnv, branches: &[CartesianPatternBranch], val: &CartesianValue) -> Result<CartesianValue, Error> {
     if branches.len() == 0 { return Err(Error::UnableToFindMatchingPattern) }
     if branches.len() == 1 && matches!(branches[0].pattern, Pattern::Variable(_)) { // non-destructive read
         let CartesianPatternBranch { pattern, body } =  branches.into_iter().next().unwrap();
         match pattern {
             Pattern::Variable(var) => {
-                let env = env.clone().extend(var.clone(), val.clone());
+                let env = env.clone().extend(var.clone(), val.duplicate_with_sharing());
                 return cartesian_eval(program, &env, body)
             },
             _ => unreachable!(),
@@ -1306,21 +1351,22 @@ fn cartesian_apply_msg_to_branches(program: &Program, env: &CartesianEnv, branch
             for CartesianPatternBranch { pattern, body } in branches {
                 match pattern {
                     Pattern::Tagged(tag, pattern) => {
-                        if tag == &tag0 {
+                        if tag == tag0 {
                             filtered_branches.push(CartesianPatternBranch { pattern: *pattern.clone(), body: body.clone() });
                         }
                     },
                     _ => return Err(Error::InvalidPatternMatch(PatternMatchErrror::TaggedValueFedToNonTaggedPattern))
                 }
             }
-            cartesian_apply_msg_to_branches(program, env, &filtered_branches, *val)
+            cartesian_apply_msg_to_branches(program, env, &filtered_branches, &*val)
         },
         CartesianValue::Tuple(values) => {
             if branches.len() == 1 {
                 let branch = branches.into_iter().next().unwrap();
                 match &branch.pattern {
-                    Pattern::Tuple(patterns) => 
-                        apply_cartesian_tuple_to_branch(program, env, &patterns[..], &branch.body, values),
+                    Pattern::Tuple(patterns) =>  {
+                        apply_cartesian_tuple_to_branch(program, env, &patterns[..], &branch.body, values)
+                    },
                     _ => return Err(Error::InvalidPatternMatch(PatternMatchErrror::TupleFedToNonTuplePattern)),
                 }
             } else {
@@ -1335,11 +1381,11 @@ fn cartesian_apply_msg_to_branches(program: &Program, env: &CartesianEnv, branch
         },
     }
 }
-fn apply_cartesian_tuple_to_branch(program: &Program, env: &CartesianEnv, patterns: &[TuplePattern], body: &CartesianExpression, values: Vec<CartesianValue>) -> Result<CartesianValue, Error> {
+fn apply_cartesian_tuple_to_branch(program: &Program, env: &CartesianEnv, patterns: &[TuplePattern], body: &CartesianExpression, values: &[Rc<CartesianValue>]) -> Result<CartesianValue, Error> {
     let env = bind_cartesian_tuple_to_tuple_pattern(program, env, patterns, values)?;
     cartesian_eval(program, &env, body)
 }
-fn bind_cartesian_tuple_to_tuple_pattern(program: &Program, env: &CartesianEnv, patterns: &[TuplePattern], values: Vec<CartesianValue>) -> Result<CartesianEnv, Error> {
+fn bind_cartesian_tuple_to_tuple_pattern(program: &Program, env: &CartesianEnv, patterns: &[TuplePattern], values: &[Rc<CartesianValue>]) -> Result<CartesianEnv, Error> {
     if patterns.len() != values.len() {
         return Err(Error::InvalidPatternMatch(PatternMatchErrror::TupleSizesDidNotMatch))
     }
@@ -1347,12 +1393,12 @@ fn bind_cartesian_tuple_to_tuple_pattern(program: &Program, env: &CartesianEnv, 
     for (pattern, val) in patterns.into_iter().zip(values) {
         match pattern {
             TuplePattern::Variable(var) => {
-                env = env.extend(var.clone(), val.clone());
+                env = env.extend(var.clone(), val.duplicate_with_sharing());
             },
             TuplePattern::Tuple(patterns) => {
-                match val {
+                match &**val {
                     CartesianValue::Tuple(values) => {
-                        env = bind_cartesian_tuple_to_tuple_pattern(program, &env, patterns, values)?;
+                        env = bind_cartesian_tuple_to_tuple_pattern(program, &env, patterns, &values)?;
                     },
                     _ => return Err(Error::InvalidPatternMatch(PatternMatchErrror::AttemptToMatchNonTupleToTuplePattern)),
                 }
