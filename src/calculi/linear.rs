@@ -1,5 +1,4 @@
 use std::fmt;
-use std::rc::Rc;
 use crate::tokenizer::{TokenStream, Token, TokenType};
 use crate::syntax::{
     anyidentifier, anytoken, identifier, token, peek_anytoken, peek_token, vector, delimited_nonempty_vector, delimited_vector,
@@ -77,8 +76,21 @@ fn expression_vector(input: TokenStream) -> IResult0<Vec<Expression>> {
     comma_vector(parse_expression)(input)
 }
 
-//   #tag
+// #tag
 fn parse_tag(input: TokenStream) -> IResult0<Tag> {
+    use Token::*;
+    let (input, token0) = anytoken(input)?;
+    match token0 {
+        TagSymbol => {
+            let (input, var_name) = anyidentifier(input)?;
+            Ok((input, Tag::new(var_name)))
+        },
+        _ => Err(nom::Err::Error(nom::error::Error { input: input.input, code: nom::error::ErrorKind::Alt })),
+    }
+}
+
+// @msg
+fn parse_message(input: TokenStream) -> IResult0<Tag> {
     use Token::*;
     let (input, token0) = anytoken(input)?;
     match token0 {
@@ -110,32 +122,32 @@ pub fn parse_function_definition(input: TokenStream) -> IResult0<FunctionDefinit
     Ok((input, FunctionDefinition { name: FunctionName::new(function_name_str), parameters, body }))
 }
 
-// =====NEW PATTERN MACHING STUFF========
+// =====Parsing pattern matching========
 
 // x, y, z
 // x, [y0, y1], [[]]
 // x, [[y0, y1], z], w
-fn parse_pattern_sequence_proper(input: TokenStream) -> IResult0<Vec<pattern_branch::Pattern>> {
-    comma_vector(parse_pattern_proper)(input)
+fn parse_pattern_sequence(input: TokenStream) -> IResult0<Vec<pattern_branch::Pattern>> {
+    comma_vector(parse_pattern)(input)
 }
 
 // [x, y, z]
 // [x, [y0, y1], [[]]]
 // [x, [[y0, y1], z], w]
-fn parse_tuple_pattern_proper(input: TokenStream) -> IResult0<Vec<pattern_branch::Pattern>> {
-    brackets(parse_pattern_sequence_proper)(input)
+fn parse_tuple_pattern(input: TokenStream) -> IResult0<Vec<pattern_branch::Pattern>> {
+    brackets(parse_pattern_sequence)(input)
 }
 
 // var
 // [x,y,z]
 // [x,[y0, y1],z]
-fn parse_pattern_proper(input: TokenStream) -> IResult0<pattern_branch::Pattern> {
+fn parse_pattern(input: TokenStream) -> IResult0<pattern_branch::Pattern> {
     use Token::*;
     let (input, token0) = anytoken(input)?;
     match token0 {
         Identifier(var_name) => Ok((input, pattern_branch::Pattern::match_all(VariableName::new(var_name)))),
         OpenBracket => {
-            let (input, patterns) = parse_pattern_sequence_proper(input)?;
+            let (input, patterns) = parse_pattern_sequence(input)?;
             let (input, _) = token(TokenType::CloseBracket)(input)?;
             Ok((input, pattern_branch::Pattern::tuple(patterns)))
         },
@@ -165,7 +177,7 @@ fn parse_pattern_proper(input: TokenStream) -> IResult0<pattern_branch::Pattern>
 //   | #tag1 x . body1
 //   | #tag2 . body2
 //   }
-fn parse_branch_proper(input: TokenStream) -> IResult0<pattern_branch::Branch<Expression>> {
+fn parse_branch(input: TokenStream) -> IResult0<pattern_branch::Branch<Expression>> {
     let (input, _) = token(TokenType::OpenCurly)(input)?;
 
     // either match_all, or tagged, or tuple
@@ -173,12 +185,12 @@ fn parse_branch_proper(input: TokenStream) -> IResult0<pattern_branch::Branch<Ex
     let (_, token0) = anytoken(input)?;
     let (input, branch) = match token0 {
         TagSymbol | OrSeparator => { // do not commit
-            let (input, or_branch) = parse_or_branch_proper(input)?;
+            let (input, or_branch) = parse_or_branch(input)?;
             (input, pattern_branch::Branch::or(or_branch))
         },
         OpenBracket | Identifier(_)  => { // do not commit
             // INEFFICIENT: We're gonna have to reparse identifier, but whatever.
-            parse_pattern_branch_proper(input)?
+            parse_pattern_branch(input)?
         },
         _ => return Err(nom::Err::Error(nom::error::Error { input: input.input, code: nom::error::ErrorKind::Alt })),
     };
@@ -188,8 +200,8 @@ fn parse_branch_proper(input: TokenStream) -> IResult0<pattern_branch::Branch<Ex
 }
 
 //   | #tag0 . branch | #tag1 x . branch | #tag2 [x, y]. branch |  #tag3 { #foo . branch }
-fn parse_or_branch_proper(input: TokenStream) -> IResult0<pattern_branch::OrBranch<Expression>> {
-    let (input, branches) = or_vector(parse_tag_branch_proper)(input)?;
+fn parse_or_branch(input: TokenStream) -> IResult0<pattern_branch::OrBranch<Expression>> {
+    let (input, branches) = or_vector(parse_tag_branch)(input)?;
     let or_branch = pattern_branch::OrBranch::new(branches);
     Ok((input, or_branch))
 }
@@ -202,14 +214,14 @@ fn parse_or_branch_proper(input: TokenStream) -> IResult0<pattern_branch::OrBran
 //         }
 //   #tag [x, y, z] . body
 //   #tag x . body
-fn parse_tag_branch_proper(input: TokenStream) -> IResult0<(Tag, pattern_branch::BranchOrBody<Expression>)> {
+fn parse_tag_branch(input: TokenStream) -> IResult0<(Tag, pattern_branch::BranchOrBody<Expression>)> {
     use Token::*;
     let (input, tag) = parse_tag(input)?;
     let (input_if_commited, token0) = anytoken(input)?;
     match token0 {
         TagSymbol => { // do not commit
             // #tag0 #tag1 . body
-            let (input, tagged_branch) = parse_tag_branch_proper(input)?;
+            let (input, tagged_branch) = parse_tag_branch(input)?;
             let or_branch = pattern_branch::OrBranch::new(vec![tagged_branch]);
             let branch = pattern_branch::Branch::or(or_branch);
             Ok((input, (tag, pattern_branch::BranchOrBody::Branch(branch))))
@@ -221,21 +233,21 @@ fn parse_tag_branch_proper(input: TokenStream) -> IResult0<(Tag, pattern_branch:
         },
         OpenBracket => { // do not commit
             // #tag [x, y, z] . body
-            let (input, branch) = parse_pattern_branch_proper(input)?;
+            let (input, branch) = parse_pattern_branch(input)?;
             Ok((input, (tag, pattern_branch::BranchOrBody::Branch(branch))))
         },
         OpenCurly => { // commit
             // #tag0 { #tag00 . body 
             //       | #tag01 . body
             //       }
-            let (input, or_branch) = parse_or_branch_proper(input_if_commited)?;
+            let (input, or_branch) = parse_or_branch(input_if_commited)?;
             let branch = pattern_branch::Branch::or(or_branch);
             let (input, _) = token(TokenType::CloseCurly)(input)?;
             Ok((input, (tag, pattern_branch::BranchOrBody::Branch(branch))))
         },
         Identifier(_) => { // do not commit
             // #tag x . body
-            let (input, branch) =parse_pattern_branch_proper(input)?;
+            let (input, branch) =parse_pattern_branch(input)?;
             Ok((input, (tag, pattern_branch::BranchOrBody::Branch(branch))))
         }
         _ => Err(nom::Err::Error(nom::error::Error { input: input.input, code: nom::error::ErrorKind::Alt })),
@@ -245,70 +257,14 @@ fn parse_tag_branch_proper(input: TokenStream) -> IResult0<(Tag, pattern_branch:
 // x . body
 // [p, q, r] . body
 // [[p0, p1], q, r] . body
-fn parse_pattern_branch_proper(input: TokenStream) -> IResult0<pattern_branch::Branch<Expression>> {
-    let (input, pattern) = parse_pattern_proper(input)?;
+fn parse_pattern_branch(input: TokenStream) -> IResult0<pattern_branch::Branch<Expression>> {
+    let (input, pattern) = parse_pattern(input)?;
     let (input, _) = token(TokenType::BindingSeparator)(input)?;
     let (input, body) = parse_expression(input)?;
     Ok((input, pattern_branch::Branch::pattern(pattern, body)))
 }
-// =====END NEW PATTERN MACHING STUFF========
 
-
-
-
-
-fn parse_pattern(input: TokenStream) -> IResult0<Pattern> {
-    let (input, token0) = anytoken(input)?;
-    use Token::*;
-    match token0 {
-        TagSymbol => {
-            // Tag pattern
-            let (input, var_name) = anyidentifier(input)?;
-            let (input, pattern) = parse_pattern(input)?;
-            Ok((input, Pattern::Tagged(Tag::new(var_name), Box::new(pattern))))
-        },
-        OpenBracket => {
-            // Tuple pattern
-            let (input, patterns) = parse_tuple_pattern_sequence(input)?;
-            let (input, _) = token(TokenType::CloseBracket)(input)?;
-            Ok((input, Pattern::Tuple(patterns)))
-        },
-        Identifier(var_name) => Ok((input, Pattern::Variable(VariableName::new(var_name)))),
-        _ => Err(nom::Err::Error(nom::error::Error { input: input.input, code: nom::error::ErrorKind::Alt })),
-    }
-}
-
-// This is a special case where the patterns are all nested tuple patterns.
-fn parse_tuple_pattern_sequence(input: TokenStream) -> IResult0<Vec<TuplePattern>> {
-    comma_vector(parse_tuple_pattern)(input)
-}
-
-fn parse_tuple_pattern(input: TokenStream) -> IResult0<TuplePattern> {
-    let (input, token0) = anytoken(input)?;
-    use Token::*;
-    match token0 {
-        OpenBracket => {
-            let (input, patterns) = parse_tuple_pattern_sequence(input)?;
-            let (input, _) = token(TokenType::CloseBracket)(input)?;
-            Ok((input, TuplePattern::Tuple(patterns)))
-        },
-        Identifier(var_name) => Ok((input, TuplePattern::Variable(VariableName::new(var_name)))),
-        _ => Err(nom::Err::Error(nom::error::Error { input: input.input, code: nom::error::ErrorKind::Alt })),
-    }
-}
-
-pub fn parse_branch(input: TokenStream) -> IResult0<PatternBranch> {
-    let (input, pattern) = parse_pattern(input)?;
-    let (input, _) = token(TokenType::BindingSeparator)(input)?;
-    let (input, body) = parse_expression(input)?;
-
-    Ok((input, PatternBranch { pattern, body }))
-}
-
-pub fn parse_branches(input: TokenStream) -> IResult0<Vec<PatternBranch>> {
-    or_vector(parse_branch)(input)
-}
-
+// ===Parsing bindings===
 // x = e0
 pub fn parse_var_binding(input: TokenStream) -> IResult0<(VariableName, Expression)> {
     let (input, identifier) = anyidentifier(input)?;
@@ -328,6 +284,7 @@ pub fn parse_var_bindings(input: TokenStream) -> IResult0<Bindings> {
     Ok((input, Bindings(Box::new(bindings))))
 }
 
+// ===Parsing expressions===
 pub fn parse_expression(input: TokenStream) -> IResult0<Expression> {
     let (input, token0) = anytoken(input)?;
     use Token::*;
@@ -396,7 +353,7 @@ pub fn parse_expression(input: TokenStream) -> IResult0<Expression> {
                             Ok((input, Expression::let_move(arg, var, body)))
                         },
                         Token::OpenBracket => { // we don't commit the bracket `[`
-                            let (input, tuple_pattern) = parse_tuple_pattern_proper(input)?;
+                            let (input, tuple_pattern) = parse_tuple_pattern(input)?;
                             let (input, _) = token(TokenType::Eq)(input)?;
                             let (input, arg) = parse_expression(input)?;
                             let (input, _) = token(TokenType::BindingSeparator)(input)?;
@@ -414,7 +371,7 @@ pub fn parse_expression(input: TokenStream) -> IResult0<Expression> {
                 },
                 "match" => {
                     let (input, arg) = parse_expression(input)?;
-                    let (input, branches) = parse_branch_proper(input)?;
+                    let (input, branches) = parse_branch(input)?;
                     Ok((input, Expression::match_(arg, branches)))
                 },
                 "obj" => {
@@ -423,7 +380,7 @@ pub fn parse_expression(input: TokenStream) -> IResult0<Expression> {
                     let (input, captured_bindings) = parse_var_bindings(input)?;
                     let (input, _) = token(TokenType::BindingSeparator)(input)?;
 
-                    let (input, branches) = parse_branch_proper(input)?;
+                    let (input, branches) = parse_branch(input)?;
                     let (input, _) = token(TokenType::CloseCurly)(input)?;
                     Ok((input, Expression::object(captured_bindings, branches)))
                 },
@@ -544,27 +501,6 @@ pub struct Bindings(Box<Bindings0>);
 pub enum Bindings0 {
     Empty,
     Push { var: VariableName, expr: Expression, parent: Bindings },
-}
-
-#[derive(Debug, Clone)]
-pub struct PatternBranch {
-    pub pattern: Pattern,
-    pub body: Expression,
-}
-
-// match v { x => ... }  // Should be valid right? This is basically a let-expression equivalent.
-// match v { #foo x => ... | #bar y => ... } // Should also be valid. But we should assume that the
-#[derive(Debug, Clone)]
-pub enum Pattern {
-    Variable(VariableName),
-    Tagged(Tag, Box<Pattern>),
-    Tuple(Vec<TuplePattern>),
-}
-
-#[derive(Debug, Clone)]
-pub enum TuplePattern {
-    Variable(VariableName),
-    Tuple(Vec<TuplePattern>),
 }
 
 impl Expression {

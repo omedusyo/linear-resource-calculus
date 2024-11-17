@@ -1,19 +1,4 @@
 #V2
-dup_nat[#succ#succ#zero[]]
-dup[#cons[5, #nil[]]]
-123 // 231
-123 // 
-dup[#cons[5, #nil[]]]
-+[1,1]
-[+[5, 6], 2]
-fn mul_5[x] { *[%x, 5] }
-mul_5[6]
-fn pm[x] { 123 }
-fn pm[x] { match %x { [x0, x1] . %x } }
-fn pm[x] { match %x { [x0, [x1]] . %x } }
-fn pm[x] { match %x { #foo [] . %x } }
-fn pm[x] { match %x { #foo [x] . %x } }
-fn pm[x] { match %x { #foo [x, y] . %x } }
 fn pm[x] { match %x { #foo #bar [] . %x } }
 fn pm[x] { match %x { #foo { #bar [] . %x } } }
 fn pm[x] { match %x { #foo { #bar [] . %x | #quux [x] . %x} } }
@@ -99,3 +84,18 @@ incrementing-server[]
 range-iter[5, 0]
 range-iter-simpler[5, 0]
 range-iter-simpler[0, 0]
+range-iter-simpler[5, 0]
+range-iter[5, 0]
+map-server[incrementing-server[], range-iter[5, 0]]
+fib[5, 0]
+dup_nat[#succ#succ#zero]
+dup[#cons[5, #nil[]]]
+send[fib[3, 5], #next[]]
+send[fib[3, 5], #next]
+observe-stream[fib[0, 1], 0]
+observe-stream[fib[0, 1], 10]
+let { [x, y] = [20, 30] . [%y, %x] }
+let { [[[x]], [y, z]] = [[[20]], [30, 40]] . [%y, %x, %z] }
+match [20, [30, 40]] { [x, [y, z]] . [%y, %x, %z] }
++[1, 2]
+match [20, [30, 40]] { [x, [y, z]] . [%y, %x, %z] }

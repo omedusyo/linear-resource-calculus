@@ -180,6 +180,9 @@ cargo run repl linear
 
 :def fn mul_5[x] { *[%x, 5] }
 
+mul_5[6]
+
+
 :def fn pm[x] { match %x { #foo x . %x } }
 
 match #foo #bar [1,[50, 2]] { #foo #bar [x, [y, z]] . [%y, %x, %z] }
@@ -188,7 +191,6 @@ match #a #a1 [3, 4] { #a { #a0 . 123 | #a1 [x, y]. [%y, %x] }   }
 
 pm[#foo 123]
 
-mul_5[6]
 
 :list fn
 
