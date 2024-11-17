@@ -266,7 +266,7 @@ fn parse_pattern_branch(input: TokenStream) -> IResult0<pattern_branch::Branch<E
 
 // ===Parsing bindings===
 // x = e0
-pub fn parse_var_binding(input: TokenStream) -> IResult0<(VariableName, Expression)> {
+pub fn parse_binding(input: TokenStream) -> IResult0<(VariableName, Expression)> {
     let (input, identifier) = anyidentifier(input)?;
     let (input, _) = token(TokenType::Eq)(input)?;
     let (input, arg) = parse_expression(input)?;
@@ -275,8 +275,8 @@ pub fn parse_var_binding(input: TokenStream) -> IResult0<(VariableName, Expressi
 }
 
 // x = e0, y = e1, z = e2
-pub fn parse_var_bindings(input: TokenStream) -> IResult0<Bindings> {
-    let (input, var_expr_pair) = comma_vector(parse_var_binding)(input)?;
+pub fn parse_bindings(input: TokenStream) -> IResult0<Bindings> {
+    let (input, var_expr_pair) = comma_vector(parse_binding)(input)?;
     let mut bindings = Bindings0::Empty;
     for (var, expr) in var_expr_pair {
         bindings = Bindings0::Push { var, expr, parent: Bindings(Box::new(bindings)) };
@@ -334,40 +334,52 @@ pub fn parse_expression(input: TokenStream) -> IResult0<Expression> {
                 "let" => {
                     // Basic let binding
                     //   let { a = 5 . body }
-                    // The following is just syntactic sugar for `match [1, 2] { [a, b] = body }
+                    //   let { a = 5, b = 6 . body }
+                    // TODO:
+                    // The following is just syntactic sugar for `match [1, 2] { [a, b] . body }
                     //   let { [a, b] = [1, 2] . body } 
+                    // TODO: Not sure about this...
+                    // The following is just syntactic sugar for `match [   [1, 2],   [512, [60, 61], []]  ] { [a, b] . body }`
+                    //   let { [a, b] = [1, 2], [c, [d0, d1], []] = [512, [60, 61], []] . body } 
                     let (input, _) = token(TokenType::OpenCurly)(input)?;
+                    let (input, bindings) = parse_bindings(input)?;
+                    let (input, _) = token(TokenType::BindingSeparator)(input)?;
+                    let (input, body) = parse_expression(input)?;
+                    let (input, _) = token(TokenType::CloseCurly)(input)?;
+
+                    Ok((input, Expression::let_move(bindings, body)))
+                    // TODO: Reintroduce pattern bindings again...
                     // Check if this is a tuple pattern or identifier.
-                    let (input_if_commited, token0) = anytoken(input)?;
-                    match token0 {
-                        Token::Identifier(identifier) => { // we commit the identifier
-                            let var = VariableName::new(identifier);
-                            let (input, _) = token(TokenType::Eq)(input_if_commited)?;
-                            let (input, arg) = parse_expression(input)?;
+                    // let (input_if_commited, token0) = anytoken(input)?;
+                    // match token0 {
+                    //     Token::Identifier(identifier) => { // we commit the identifier
+                    //         let var = VariableName::new(identifier);
+                    //         let (input, _) = token(TokenType::Eq)(input_if_commited)?;
+                    //         let (input, arg) = parse_expression(input)?;
 
-                            let (input, _) = token(TokenType::BindingSeparator)(input)?;
+                    //         let (input, _) = token(TokenType::BindingSeparator)(input)?;
 
-                            let (input, body) = parse_expression(input)?;
-                            let (input, _) = token(TokenType::CloseCurly)(input)?;
+                    //         let (input, body) = parse_expression(input)?;
+                    //         let (input, _) = token(TokenType::CloseCurly)(input)?;
 
-                            Ok((input, Expression::let_move(arg, var, body)))
-                        },
-                        Token::OpenBracket => { // we don't commit the bracket `[`
-                            let (input, tuple_pattern) = parse_tuple_pattern(input)?;
-                            let (input, _) = token(TokenType::Eq)(input)?;
-                            let (input, arg) = parse_expression(input)?;
-                            let (input, _) = token(TokenType::BindingSeparator)(input)?;
+                    //         Ok((input, Expression::let_move(arg, var, body)))
+                    //     },
+                    //     Token::OpenBracket => { // we don't commit the bracket `[`
+                    //         let (input, tuple_pattern) = parse_tuple_pattern(input)?;
+                    //         let (input, _) = token(TokenType::Eq)(input)?;
+                    //         let (input, arg) = parse_expression(input)?;
+                    //         let (input, _) = token(TokenType::BindingSeparator)(input)?;
 
-                            let (input, body) = parse_expression(input)?;
-                            let (input, _) = token(TokenType::CloseCurly)(input)?;
-                            let branches = pattern_branch::Branch::and(pattern_branch::AndBranch::new(tuple_pattern, body));
-                            Ok((input, Expression::match_(arg, branches)))
-                        },
-                        _ => {
-                            // TODO: This is an error
-                            todo!()
-                        }
-                    }
+                    //         let (input, body) = parse_expression(input)?;
+                    //         let (input, _) = token(TokenType::CloseCurly)(input)?;
+                    //         let branches = pattern_branch::Branch::and(pattern_branch::AndBranch::new(tuple_pattern, body));
+                    //         Ok((input, Expression::match_(arg, branches)))
+                    //     },
+                    //     _ => {
+                    //         // TODO: This is an error
+                    //         todo!()
+                    //     }
+                    // }
                 },
                 "match" => {
                     let (input, arg) = parse_expression(input)?;
@@ -377,12 +389,12 @@ pub fn parse_expression(input: TokenStream) -> IResult0<Expression> {
                 "obj" => {
                     // obj { x = e0, y = e1 . #hd [] . body0 | #tl [] . body1 }
                     let (input, _) = token(TokenType::OpenCurly)(input)?;
-                    let (input, captured_bindings) = parse_var_bindings(input)?;
+                    let (input, bindings) = parse_bindings(input)?;
                     let (input, _) = token(TokenType::BindingSeparator)(input)?;
 
                     let (input, branches) = parse_branch(input)?;
                     let (input, _) = token(TokenType::CloseCurly)(input)?;
-                    Ok((input, Expression::object(captured_bindings, branches)))
+                    Ok((input, Expression::object(bindings, branches)))
                 },
                 "send" => {
                     // send[%obj, %msg]
@@ -476,7 +488,7 @@ pub enum Expression0 {
     VarMove(VariableName),
     VarClone(VariableName),
     VarDrop(VariableName, Expression),
-    LetMove { arg: Expression, var: VariableName, body: Expression },
+    LetMove { bindings: Bindings, body: Expression },
     // Here I was forced to include an explicit list of moved bindings.
     // This will also require an extension in syntax.
     Object { captured_bindings: Bindings, branch: pattern_branch::Branch<Expression> },
@@ -513,7 +525,7 @@ impl Expression {
     fn var_move(var: VariableName) -> Self { Self(Box::new(Expression0::VarMove(var))) }
     fn var_clone(var: VariableName) -> Self { Self(Box::new(Expression0::VarClone(var))) }
     fn var_drop(var: VariableName, expr: Expression) -> Self { Self(Box::new(Expression0::VarDrop(var, expr))) }
-    fn let_move(arg: Self, var: VariableName, body: Self) -> Self { Self(Box::new(Expression0::LetMove { arg, var, body })) }
+    fn let_move(bindings: Bindings, body: Self) -> Self { Self(Box::new(Expression0::LetMove { bindings, body })) }
     fn object(moved_env: Bindings, branch: pattern_branch::Branch<Expression>) -> Self { Self(Box::new(Expression0::Object { captured_bindings: moved_env, branch })) }
     fn send(obj: Self, msg: Self) -> Self { Self(Box::new(Expression0::Send(obj, msg))) }
 }
@@ -839,10 +851,10 @@ fn eval(program: &Program, env: Env, e: &Expression) -> Result<(Env, Value), Err
                 Err(err) => Err(Error::PatternMatch(err))
             }
         },
-        LetMove { arg, var, body } => {
-            let (env, arg_value) = eval(program, env, arg)?;
-            let env = env.extend(var.clone(), arg_value);
-            eval(program, env, body)
+        LetMove { bindings, body } => {
+            let (env, captured_env) = eval_bindings(program, env, bindings)?;
+            let val = eval_consumming(program, captured_env, body)?;
+            Ok((env, val))
         },
         // Now here is a big problem. The object should not capture the whole environement.
         // We should only capture those resources that are needed by the object
@@ -876,13 +888,16 @@ fn eval(program: &Program, env: Env, e: &Expression) -> Result<(Env, Value), Err
 
 // We return `(Env, Env)`.
 // The first component is what remains of `env`, while the second is the result of evaluating `bindings`
+//
+// Note how in a presence of bindings, this actually has type
+//    Env -> (Env, Env)
+// which looks like a tyape for duplication, but actually this is the type of split too...
 fn eval_bindings(program: &Program, env: Env, bindings: &Bindings) -> Result<(Env, Env), Error> {
     use Bindings0::*;
     match &(*bindings.0) {
         Empty => Ok((env, Env::new())),
         Push { var, expr, parent } => {
             let (env, bindings_env_parent) = eval_bindings(program, env, parent)?;
-            // TODO: Would be nice to have dependent bindings, but it's not trivial to implement.
             let (env, val) = eval(program, env, expr)?;
             let bindings_env_parent = bindings_env_parent.extend(var.clone(), val);
             Ok((env, bindings_env_parent))
