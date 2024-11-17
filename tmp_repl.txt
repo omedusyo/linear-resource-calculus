@@ -228,9 +228,9 @@ range-iter-simpler[5, 0]
 :def fn f[x] { %x }
 
 
-obj {. #foo[] . 123 }
+obj {. { #foo[] . 123 } }
 
-:r
+send[send[send[nats[3], #tl], #tl], #tl]
 
 send[incrementing-server[], #apply[5]]
 
@@ -240,6 +240,8 @@ send[incrementing-server[], #apply[5]]
 incrementing-server[]
 
 range-iter[5, 0]
+
+range-iter-simpler[5, 0]
 
 map-server[incrementing-server[], range-iter[5, 0]]
 
@@ -259,7 +261,7 @@ dup[#cons[5, #nil[]]]
 
 :r
 
-send[fib[3, 5], #next[]]
+send[fib[3, 5], #next]
 
 observe-stream[fib[0, 1], 0]
 

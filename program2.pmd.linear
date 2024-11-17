@@ -38,30 +38,30 @@ fn reverse-loop[xs, state] { match %xs {
 | #cons [x, xs] . reverse-loop[%xs, #cons [%x, %state]]
 }}
 
-fn nats[n] { obj { n = %n .
-| #hd [] . %n
-| #tl [] . nats[+[%n, 1]]
-}}
+fn nats[n] { obj { n = %n . {
+| #hd . %n
+| #tl . nats[+[%n, 1]]
+}}}
 
 fn example_tuple_0[] {
-  obj {. #fst[] . 123 | #snd[] . 512 }
+  obj {. { #fst . 123 | #snd . 512 }}
 }
 
 fn example_tuple_1[] {
-  obj { n = 123 . #fst[] . %n | #snd[] . +[%n, 100] }
+  obj { n = 123 . { #fst . %n | #snd . +[%n, 100] }}
 }
 
 fn map-server[f, xs] { match %xs {
-  #nil . match send[%f, #stop[]] { [] . #nil }
+  #nil . match send[%f, #stop] { [] . #nil }
 | #cons[x, xs] . match send[%f, #apply[%x]] {
     [y, f] . #cons[%y, map-server[%f, %xs]]
   }
 }}
 
-fn incrementing-server[] { obj { . 
-  #stop[] . []
+fn incrementing-server[] { obj { . {
+| #stop . []
 | #apply[x] . [+[%x, 1], incrementing-server[]]
-}}
+}}}
 
 fn range-iter[n, i] { 
   match dup[%n] { [n-copy, n] .
@@ -81,15 +81,15 @@ fn range-iter-simpler[n, i] {
     #T .
       drop n .
       drop i .
-      #nil[]
+      #nil
   | #F . #cons[clone i, range-iter-simpler[%n, +[%i, 1]]]
   }
 }
 
-fn fib[x, y] { obj { x = %x, y = %y .
-   #next[] .
+fn fib[x, y] { obj { x = %x, y = %y . {
+   #next .
    [clone x,  fib[clone y, +[%x, %y]]]
-}}
+}}}
 
 fn observe-stream[stream, n] { observe-stream-loop[%stream, 0, %n] }
 
@@ -99,7 +99,7 @@ fn observe-stream-loop[stream, i, n] { match ==[clone i, clone n] {
     drop n .
     #cont[%stream]
 | #F .
-    let { [x, stream] = send[%stream, #next[]] .
+    let { [x, stream] = send[%stream, #next] .
       #cons[%x, observe-stream-loop[%stream, +[%i, 1], %n]]
     }
 }}

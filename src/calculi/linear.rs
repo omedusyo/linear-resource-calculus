@@ -355,7 +355,7 @@ pub fn parse_expression(input: TokenStream) -> IResult0<Expression> {
         TagSymbol => {
             let (input, tag) = anyidentifier(input)?;
             let tag = Tag::new(tag);
-            let (input_if_commited, token) = peek_anytoken(input)?;
+            let (_, token) = peek_anytoken(input)?;
             if token.is_start_of_expression() {
                 let (input, arg) = parse_expression(input)?;
                 Ok((input, Expression::tagged(tag, arg)))
@@ -422,7 +422,8 @@ pub fn parse_expression(input: TokenStream) -> IResult0<Expression> {
                     let (input, _) = token(TokenType::OpenCurly)(input)?;
                     let (input, captured_bindings) = parse_var_bindings(input)?;
                     let (input, _) = token(TokenType::BindingSeparator)(input)?;
-                    let (input, branches) = parse_branches(input)?;
+
+                    let (input, branches) = parse_branch_proper(input)?;
                     let (input, _) = token(TokenType::CloseCurly)(input)?;
                     Ok((input, Expression::object(captured_bindings, branches)))
                 },
@@ -521,8 +522,7 @@ pub enum Expression0 {
     LetMove { arg: Expression, var: VariableName, body: Expression },
     // Here I was forced to include an explicit list of moved bindings.
     // This will also require an extension in syntax.
-    Object { captured_bindings: Bindings, branches: Vec<PatternBranch> },
-    // Object { captured_bindings: Bindings, branches: pattern_branches::Branch<Expression> },
+    Object { captured_bindings: Bindings, branch: pattern_branch::Branch<Expression> },
     Send(Expression, Expression),
 }
 
@@ -580,7 +580,7 @@ impl Expression {
     fn var_clone(var: VariableName) -> Self { Self(Box::new(Expression0::VarClone(var))) }
     fn var_drop(var: VariableName, expr: Expression) -> Self { Self(Box::new(Expression0::VarDrop(var, expr))) }
     fn let_move(arg: Self, var: VariableName, body: Self) -> Self { Self(Box::new(Expression0::LetMove { arg, var, body })) }
-    fn object(moved_env: Bindings, branches: Vec<PatternBranch>) -> Self { Self(Box::new(Expression0::Object { captured_bindings: moved_env, branches })) }
+    fn object(moved_env: Bindings, branch: pattern_branch::Branch<Expression>) -> Self { Self(Box::new(Expression0::Object { captured_bindings: moved_env, branch })) }
     fn send(obj: Self, msg: Self) -> Self { Self(Box::new(Expression0::Send(obj, msg))) }
 }
 
@@ -591,8 +591,7 @@ pub enum Value {
     Tag(Tag),
     Tagged(Tag, Box<Value>),
     Tuple(Vec<Value>), // Would be cool if we could use Box<[Value]>, since we don't need to resize
-    // TODO: Are you sure you need Rc?
-    ClosureObject { captured_env: Env, branches: Vec<Rc<PatternBranch>> },
+    ClosureObject { captured_env: Env, branch: pattern_branch::Branch<Expression> },
 }
 
 impl Value {
@@ -643,7 +642,7 @@ impl PatternMatchableValue for Value {
             Tuple(values) => ValueShape::tuple(values.into_iter().map(|val| val.to_shape()).collect()),
             Int(x) => ValueShape::value(Int(x)),
             Tag(tag) => ValueShape::tag(tag),
-            ClosureObject { captured_env, branches } => ValueShape::value(ClosureObject { captured_env, branches }),
+            ClosureObject { captured_env, branch: branches } => ValueShape::value(ClosureObject { captured_env, branch: branches }),
         }
     }
     fn from_shape(value_shape: ValueShape<Self>) -> Self  {
@@ -675,8 +674,7 @@ impl fmt::Display for Value {
                 }
                 write!(f, "]")
             },
-            // TODO: Perhaps show captured resources?
-            ClosureObject { ..  } => write!(f, "obj {{...}}"),
+            ClosureObject { captured_env, ..  } => write!(f, "obj {{ {}@code }}", captured_env),
         }
     }
 }
@@ -764,10 +762,21 @@ impl Env {
         self
     }
 
-    fn extend_from_pattern_branch_env(mut self, env_pb: pattern_branch::Env<Value>) -> Self {
+    fn extend_from_pattern_branch_env(self, env_pb: pattern_branch::Env<Value>) -> Self {
         self.extend_many(env_pb.bindings.into_iter())
     }
 }
+
+impl fmt::Display for Env {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use Env0::*;
+        match &(*self.0) {
+            Empty => write!(f, ""),
+            Push {  var, value, parent } => write!(f, "{} = {} . {}", var.0, value, parent),
+        }
+    }
+}
+
 
 // ===Error===
 #[derive(Debug)]
@@ -826,9 +835,9 @@ fn eval(program: &Program, env: Env, e: &Expression) -> Result<(Env, Value), Err
                             Sub => Value::Int(x0 - x1),
                             Mul => Value::Int(x0 * x1),
                             Eq => if x0 == x1 {
-                                Value::Tagged(Tag::new("T".to_string()), Box::new(Value::Tuple(vec![])))
+                                Value::Tag(Tag::new("T".to_string()))
                             } else {
-                                Value::Tagged(Tag::new("F".to_string()), Box::new(Value::Tuple(vec![])))
+                                Value::Tag(Tag::new("F".to_string()))
                             },
                             Discard | Clone => todo!()
                         }
@@ -904,25 +913,27 @@ fn eval(program: &Program, env: Env, e: &Expression) -> Result<(Env, Value), Err
         //
         // This is only a problem in a dynamic language, right? When we have types, the parts of
         // the environment that are captured can be known statically.
-        Object { captured_bindings, branches } => {
+        Object { captured_bindings, branch } => {
             let (env, captured_env) = eval_bindings(program, env, captured_bindings)?;
-            // TODO
-            todo!()
-            // Ok((env, Value::ClosureObject { captured_env, branches }))
+            Ok((env, Value::ClosureObject { captured_env, branch: branch.clone() }))
         },
         Send(e0, e1) => {
             let (env, obj) = eval(program, env, e0)?;
             match obj {
-                Value::ClosureObject { captured_env, branches } => {
-                    // TODO
-                    todo!()
-                    // let (env, msg) = eval(program, env, e1)?;
-                    // let (captured_env, val) = apply_msg_to_branches(program, captured_env, &branches, msg)?;
-                    // if captured_env.is_empty() {
-                    //     Ok((env, val))
-                    // } else {
-                    //     Err(Error::UnconsumedResources(captured_env))
-                    // }
+                Value::ClosureObject { captured_env, branch } => {
+                    let (env, msg) = eval(program, env, e1)?;
+                    match pattern_branch::match_(msg.to_shape(), &branch) {
+                        Ok((env_pb, body)) => {
+                            let captured_env = captured_env.extend_from_pattern_branch_env(env_pb);
+                            let (captured_env, val) = eval(program, captured_env, body)?;
+                            if captured_env.is_empty() {
+                                Ok((env, val))
+                            } else {
+                                Err(Error::UnconsumedResources(captured_env))
+                            }
+                        },
+                        Err(err) => Err(Error::PatternMatch(err))
+                    }
                 },
                 obj => Err(Error::AttemptToSendMessageToNonObject(obj)),
             }
