@@ -74,6 +74,30 @@ impl Token {
         }
     }
 
+    pub fn is_start_of_expression(&self) -> bool {
+        use Token::*;
+        match self {
+            OpenParen => true,
+            CloseParen => false,
+            OpenBracket => true,
+            CloseBracket => false,
+            OpenCurly => false,
+            CloseCurly => false,
+            Identifier(_) => true,
+            Eq => false,
+            BindingSeparator => false,
+            Comma => false,
+            OrSeparator => false,
+            VarLookupSymbol => true,
+            VarMoveSymbol => true,
+            VarCloneSymbol => true,
+            VarDropSymbol => true,
+            TagSymbol => true,
+            Int(_) => true,
+            End => false,
+        }
+    }
+
     pub fn matches(&self, token_type: TokenType) -> bool {
         self.type_() == token_type
     }

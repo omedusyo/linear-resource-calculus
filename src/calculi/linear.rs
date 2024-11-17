@@ -1,12 +1,15 @@
 use std::fmt;
+use std::rc::Rc;
 use crate::tokenizer::{TokenStream, Token, TokenType};
 use crate::syntax::{
     anyidentifier, anytoken, identifier, token, peek_anytoken, peek_token, vector, delimited_nonempty_vector, delimited_vector,
-    parameter_vector, or_vector, comma_vector, binding_vector, parens, brackets, curly_braces,
+    parameter_vector, or_vector, comma_vector, binding_vector, parens, brackets, curly_braces, 
 };
 use crate::identifier::{VariableName, FunctionName, Tag};
 use crate::IResult0;
 use std::collections::HashMap;
+use crate::pattern_branch;
+use crate::pattern_branch::{PatternMatchableValue, ValueShape, ValueShape0};
 
 // ===parser===
 fn identifier_to_operation_code(str: &str) -> Option<OperationCode> {
@@ -74,6 +77,19 @@ fn expression_vector(input: TokenStream) -> IResult0<Vec<Expression>> {
     comma_vector(parse_expression)(input)
 }
 
+//   #tag
+fn parse_tag(input: TokenStream) -> IResult0<Tag> {
+    use Token::*;
+    let (input, token0) = anytoken(input)?;
+    match token0 {
+        TagSymbol => {
+            let (input, var_name) = anyidentifier(input)?;
+            Ok((input, Tag::new(var_name)))
+        },
+        _ => Err(nom::Err::Error(nom::error::Error { input: input.input, code: nom::error::ErrorKind::Alt })),
+    }
+}
+
 pub fn parse_program(input: TokenStream) -> IResult0<Program> {
     let (input, definitions) = vector(parse_function_definition)(input)?;
     let mut program = Program::new();
@@ -93,6 +109,153 @@ pub fn parse_function_definition(input: TokenStream) -> IResult0<FunctionDefinit
     let (input, body) = curly_braces(parse_expression)(input)?;
     Ok((input, FunctionDefinition { name: FunctionName::new(function_name_str), parameters, body }))
 }
+
+// =====NEW PATTERN MACHING STUFF========
+
+// x, y, z
+// x, [y0, y1], [[]]
+// x, [[y0, y1], z], w
+fn parse_pattern_sequence_proper(input: TokenStream) -> IResult0<Vec<pattern_branch::Pattern>> {
+    comma_vector(parse_pattern_proper)(input)
+}
+
+// [x, y, z]
+// [x, [y0, y1], [[]]]
+// [x, [[y0, y1], z], w]
+fn parse_tuple_pattern_proper(input: TokenStream) -> IResult0<Vec<pattern_branch::Pattern>> {
+    brackets(parse_pattern_sequence_proper)(input)
+}
+
+// var
+// [x,y,z]
+// [x,[y0, y1],z]
+fn parse_pattern_proper(input: TokenStream) -> IResult0<pattern_branch::Pattern> {
+    use Token::*;
+    let (input, token0) = anytoken(input)?;
+    match token0 {
+        Identifier(var_name) => Ok((input, pattern_branch::Pattern::match_all(VariableName::new(var_name)))),
+        OpenBracket => {
+            let (input, patterns) = parse_pattern_sequence_proper(input)?;
+            let (input, _) = token(TokenType::CloseBracket)(input)?;
+            Ok((input, pattern_branch::Pattern::tuple(patterns)))
+        },
+        _ => Err(nom::Err::Error(nom::error::Error { input: input.input, code: nom::error::ErrorKind::Alt })),
+    }
+}
+
+//   { #tag0 . body }
+//   { #tag0 #tag1 . body }
+//   { #tag0 #tag1 #tag2 . body }
+//   { #tag0 { #tag00 . body 
+//           | #tag01 . body
+//           }
+//   }
+//   { #tag [x, y, z] . body }
+//
+//   { [x, y, z] . body }
+//   { x . body }
+//
+//   { #tag0 . bod0
+//   | #tag1 x . body1
+//   | #tag2 . body2
+//   }
+//
+//   {
+//   | #tag0 . bod0
+//   | #tag1 x . body1
+//   | #tag2 . body2
+//   }
+fn parse_branch_proper(input: TokenStream) -> IResult0<pattern_branch::Branch<Expression>> {
+    let (input, _) = token(TokenType::OpenCurly)(input)?;
+
+    // either match_all, or tagged, or tuple
+    use Token::*;
+    let (_, token0) = anytoken(input)?;
+    let (input, branch) = match token0 {
+        TagSymbol | OrSeparator => { // do not commit
+            let (input, or_branch) = parse_or_branch_proper(input)?;
+            (input, pattern_branch::Branch::or(or_branch))
+        },
+        OpenBracket | Identifier(_)  => { // do not commit
+            // INEFFICIENT: We're gonna have to reparse identifier, but whatever.
+            parse_pattern_branch_proper(input)?
+        },
+        _ => return Err(nom::Err::Error(nom::error::Error { input: input.input, code: nom::error::ErrorKind::Alt })),
+    };
+
+    let (input, _) = token(TokenType::CloseCurly)(input)?;
+    Ok((input, branch))
+}
+
+//   | #tag0 . branch | #tag1 x . branch | #tag2 [x, y]. branch |  #tag3 { #foo . branch }
+fn parse_or_branch_proper(input: TokenStream) -> IResult0<pattern_branch::OrBranch<Expression>> {
+    let (input, branches) = or_vector(parse_tag_branch_proper)(input)?;
+    let or_branch = pattern_branch::OrBranch::new(branches);
+    Ok((input, or_branch))
+}
+
+//   #tag0 . body
+//   #tag0 #tag1 . body
+//   #tag0 #tag1 #tag2 . body
+//   #tag0 { #tag00 . body 
+//         | #tag01 . body
+//         }
+//   #tag [x, y, z] . body
+//   #tag x . body
+fn parse_tag_branch_proper(input: TokenStream) -> IResult0<(Tag, pattern_branch::BranchOrBody<Expression>)> {
+    use Token::*;
+    let (input, tag) = parse_tag(input)?;
+    let (input_if_commited, token0) = anytoken(input)?;
+    match token0 {
+        TagSymbol => { // do not commit
+            // #tag0 #tag1 . body
+            let (input, tagged_branch) = parse_tag_branch_proper(input)?;
+            let or_branch = pattern_branch::OrBranch::new(vec![tagged_branch]);
+            let branch = pattern_branch::Branch::or(or_branch);
+            Ok((input, (tag, pattern_branch::BranchOrBody::Branch(branch))))
+        },
+        BindingSeparator => { // commit
+            // #tag0 . body
+            let (input, body) = parse_expression(input_if_commited)?;
+            Ok((input, (tag, pattern_branch::BranchOrBody::Body(body))))
+        },
+        OpenBracket => { // do not commit
+            // #tag [x, y, z] . body
+            let (input, branch) = parse_pattern_branch_proper(input)?;
+            Ok((input, (tag, pattern_branch::BranchOrBody::Branch(branch))))
+        },
+        OpenCurly => { // commit
+            // #tag0 { #tag00 . body 
+            //       | #tag01 . body
+            //       }
+            let (input, or_branch) = parse_or_branch_proper(input_if_commited)?;
+            let branch = pattern_branch::Branch::or(or_branch);
+            let (input, _) = token(TokenType::CloseCurly)(input)?;
+            Ok((input, (tag, pattern_branch::BranchOrBody::Branch(branch))))
+        },
+        Identifier(_) => { // do not commit
+            // #tag x . body
+            let (input, branch) =parse_pattern_branch_proper(input)?;
+            Ok((input, (tag, pattern_branch::BranchOrBody::Branch(branch))))
+        }
+        _ => Err(nom::Err::Error(nom::error::Error { input: input.input, code: nom::error::ErrorKind::Alt })),
+    }
+}
+
+// x . body
+// [p, q, r] . body
+// [[p0, p1], q, r] . body
+fn parse_pattern_branch_proper(input: TokenStream) -> IResult0<pattern_branch::Branch<Expression>> {
+    let (input, pattern) = parse_pattern_proper(input)?;
+    let (input, _) = token(TokenType::BindingSeparator)(input)?;
+    let (input, body) = parse_expression(input)?;
+    Ok((input, pattern_branch::Branch::pattern(pattern, body)))
+}
+// =====END NEW PATTERN MACHING STUFF========
+
+
+
+
 
 fn parse_pattern(input: TokenStream) -> IResult0<Pattern> {
     let (input, token0) = anytoken(input)?;
@@ -191,8 +354,14 @@ pub fn parse_expression(input: TokenStream) -> IResult0<Expression> {
         },
         TagSymbol => {
             let (input, tag) = anyidentifier(input)?;
-            let (input, arg) = parse_expression(input)?;
-            Ok((input, Expression::tagged(Tag::new(tag), arg)))
+            let tag = Tag::new(tag);
+            let (input_if_commited, token) = peek_anytoken(input)?;
+            if token.is_start_of_expression() {
+                let (input, arg) = parse_expression(input)?;
+                Ok((input, Expression::tagged(tag, arg)))
+            } else {
+                Ok((input, Expression::tag(tag)))
+            }
         },
         OpenBracket => {
             // tuple
@@ -227,15 +396,15 @@ pub fn parse_expression(input: TokenStream) -> IResult0<Expression> {
                             Ok((input, Expression::let_move(arg, var, body)))
                         },
                         Token::OpenBracket => { // we don't commit the bracket `[`
-                            let (input, tuple_pattern) = parse_pattern(input)?;
+                            let (input, tuple_pattern) = parse_tuple_pattern_proper(input)?;
                             let (input, _) = token(TokenType::Eq)(input)?;
                             let (input, arg) = parse_expression(input)?;
                             let (input, _) = token(TokenType::BindingSeparator)(input)?;
 
                             let (input, body) = parse_expression(input)?;
                             let (input, _) = token(TokenType::CloseCurly)(input)?;
-                            // match arg { tuple_pattern . body }
-                            Ok((input, Expression::match_(arg, vec![PatternBranch { pattern: tuple_pattern, body }])))
+                            let branches = pattern_branch::Branch::and(pattern_branch::AndBranch::new(tuple_pattern, body));
+                            Ok((input, Expression::match_(arg, branches)))
                         },
                         _ => {
                             // TODO: This is an error
@@ -245,8 +414,7 @@ pub fn parse_expression(input: TokenStream) -> IResult0<Expression> {
                 },
                 "match" => {
                     let (input, arg) = parse_expression(input)?;
-                    let (input, branches) = curly_braces(parse_branches)(input)?;
-
+                    let (input, branches) = parse_branch_proper(input)?;
                     Ok((input, Expression::match_(arg, branches)))
                 },
                 "obj" => {
@@ -289,13 +457,13 @@ pub fn parse_expression(input: TokenStream) -> IResult0<Expression> {
 }
 
 // ===Program===
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Program {
     pub function_definitions: HashMap<FunctionName, FunctionDefinition>,
     pub function_definitions_ordering: Vec<FunctionName>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 // This is awkward, but I think I need to put body: Rc<Expression> atleaest...
 // These functions don't capture any linear resources,
 // so we should be able to call them repeatedly.
@@ -327,20 +495,8 @@ impl Program {
         self.function_definitions_ordering.push(fn_name);
     }
 
-    // It makes no sense to use up a function definition.
-    // But then when applying a function to resources, we have to clone its body, which sucks.
-    // Perhaps Rc<_> would help? But that seems like the wrong solution.
-    //
-    // When evaluating an expression, we completely disintegrate it.
     pub fn get_function_definition(&self, function_name: FunctionName) -> Option<&FunctionDefinition> {
         self.function_definitions.get(&function_name)
-    }
-
-    pub fn get_clone_of_function_definition(&self, function_name: FunctionName) -> Option<FunctionDefinition> {
-        match self.function_definitions.get(&function_name) {
-            Some(fn_def) => Some(fn_def.clone()),
-            None => None,
-        }
     }
 }
 
@@ -355,9 +511,10 @@ pub enum Expression0 {
     OperationApplication1(OperationCode, Expression),
     OperationApplication2(OperationCode, Expression, Expression),
     Call(FunctionName, Vec<Expression>),
+    Tag_(Tag),
     Tagged(Tag, Expression),
     Tuple(Vec<Expression>),
-    Match { arg: Expression, branches: Vec<PatternBranch> },
+    Match { arg: Expression, branch: pattern_branch::Branch<Expression> },
     VarMove(VariableName),
     VarClone(VariableName),
     VarDrop(VariableName, Expression),
@@ -365,6 +522,7 @@ pub enum Expression0 {
     // Here I was forced to include an explicit list of moved bindings.
     // This will also require an extension in syntax.
     Object { captured_bindings: Bindings, branches: Vec<PatternBranch> },
+    // Object { captured_bindings: Bindings, branches: pattern_branches::Branch<Expression> },
     Send(Expression, Expression),
 }
 
@@ -379,9 +537,6 @@ pub enum OperationCode {
 }
 
 
-// TODO: Can you refine this into a dependent version of bindings?
-// Note that these bindings contain expressions, not values.
-// This is purely for the move into object syntax.
 #[derive(Debug, Clone)]
 pub struct Bindings(Box<Bindings0>);
 
@@ -417,9 +572,10 @@ impl Expression {
     fn operation_application1(op_code: OperationCode, e0: Self) -> Self { Self(Box::new(Expression0::OperationApplication1(op_code, e0))) }
     fn operation_application2(op_code: OperationCode, e0: Self, e1: Self) -> Self { Self(Box::new(Expression0::OperationApplication2(op_code, e0, e1))) }
     fn call(fn_name: FunctionName, args: Vec<Self>) -> Self { Self(Box::new(Expression0::Call(fn_name, args))) }
+    fn tag(tag: Tag) -> Self { Self(Box::new(Expression0::Tag_(tag))) }
     fn tagged(tag: Tag, e: Expression) -> Self { Self(Box::new(Expression0::Tagged(tag, e))) }
     fn tuple(args: Vec<Expression>) -> Self { Self(Box::new(Expression0::Tuple(args))) }
-    fn match_(arg: Self, branches: Vec<PatternBranch>) -> Self { Self(Box::new(Expression0::Match { arg, branches })) }
+    fn match_(arg: Self, branch: pattern_branch::Branch<Expression>) -> Self { Self(Box::new(Expression0::Match { arg, branch })) }
     fn var_move(var: VariableName) -> Self { Self(Box::new(Expression0::VarMove(var))) }
     fn var_clone(var: VariableName) -> Self { Self(Box::new(Expression0::VarClone(var))) }
     fn var_drop(var: VariableName, expr: Expression) -> Self { Self(Box::new(Expression0::VarDrop(var, expr))) }
@@ -432,9 +588,11 @@ impl Expression {
 #[derive(Debug)]
 pub enum Value {
     Int(i32),
+    Tag(Tag),
     Tagged(Tag, Box<Value>),
     Tuple(Vec<Value>), // Would be cool if we could use Box<[Value]>, since we don't need to resize
-    ClosureObject { captured_env: Env, branches: Vec<PatternBranch> },
+    // TODO: Are you sure you need Rc?
+    ClosureObject { captured_env: Env, branches: Vec<Rc<PatternBranch>> },
 }
 
 impl Value {
@@ -442,6 +600,7 @@ impl Value {
         use Value::*;
         match self {
             Int(_x) => (),
+            Tag(_tag) => (),
             Tagged(_tag, val) => (*val).discard(),
             Tuple(values) => {
                 for val in values {
@@ -456,6 +615,7 @@ impl Value {
         use Value::*;
         match self {
             Int(x) => (Int(x), Int(x)),
+            Tag(tag) => (Tag(tag.clone()), Tag(tag)),
             Tagged(tag, val) => {
                 let (val0, val1) = (*val).duplicate();
                 (Tagged(tag.clone(), Box::new(val0)), Tagged(tag, Box::new(val1)))
@@ -475,12 +635,35 @@ impl Value {
     }
 }
 
+impl PatternMatchableValue for Value {
+    fn to_shape(self) -> ValueShape<Self>  {
+        use Value::*;
+        match self {
+            Tagged(tag, value) => ValueShape::tagged(tag, value.to_shape()),
+            Tuple(values) => ValueShape::tuple(values.into_iter().map(|val| val.to_shape()).collect()),
+            Int(x) => ValueShape::value(Int(x)),
+            Tag(tag) => ValueShape::tag(tag),
+            ClosureObject { captured_env, branches } => ValueShape::value(ClosureObject { captured_env, branches }),
+        }
+    }
+    fn from_shape(value_shape: ValueShape<Self>) -> Self  {
+        use Value::*;
+        match *value_shape.0 {
+            ValueShape0::Value(value) => value,
+            ValueShape0::Tuple(value_shapes) => Tuple(value_shapes.into_iter().map(|value_shape| PatternMatchableValue::from_shape(value_shape)).collect()),
+            ValueShape0::Tagged(tag, value_shape) => Tagged(tag, Box::new(PatternMatchableValue::from_shape(value_shape))),
+            ValueShape0::Tag(tag) => Tag(tag),
+        }
+    }
+}
+
 impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use Value::*;
         match self {
             Int(x) => write!(f, "{}", x),
-            Tagged(tag, val) => write!(f, "{}{}", tag, val),
+            Tag(tag) => write!(f, "{}", tag),
+            Tagged(tag, val) => write!(f, "{} {}", tag, val),
             Tuple(values) => {
                 write!(f, "[")?;
                 let mut values = (&**values).iter().peekable();
@@ -522,12 +705,12 @@ impl Env {
     }
 
     // Very different from the cartesian case.
-    fn move_(self, var_name: VariableName) -> Result<(Value, Self), Error> {
+    fn move_(self, var_name: &VariableName) -> Result<(Value, Self), Error> {
         use Env0::*;
         match *self.0 {
-            Empty => Err(Error::VariableLookupFailure(var_name)),
+            Empty => Err(Error::VariableLookupFailure(var_name.clone())),
             Push { var, value, parent } => {
-                if var == var_name {
+                if var == *var_name {
                     Ok((value, parent))
                 } else {
                     let (value0, parent) = parent.move_(var_name)?;
@@ -537,12 +720,12 @@ impl Env {
         }
     }
         
-    fn clone_(self, var_name: VariableName) -> Result<(Value, Self), Error> {
+    fn clone_(self, var_name: &VariableName) -> Result<(Value, Self), Error> {
         use Env0::*;
         match *self.0 {
-            Empty => Err(Error::VariableLookupFailure(var_name)),
+            Empty => Err(Error::VariableLookupFailure(var_name.clone())),
             Push { var, value, parent } => {
-                if var == var_name {
+                if var == *var_name {
                     let (value0, value1) = value.duplicate();
                     Ok((value0, Env(Box::new(Push { var, value: value1, parent }))))
                 } else {
@@ -553,12 +736,12 @@ impl Env {
         }
     }
 
-    fn drop_(self, var_name: VariableName) -> Result<Self, Error> {
+    fn drop_(self, var_name: &VariableName) -> Result<Self, Error> {
         use Env0::*;
         match *self.0 {
-            Empty => Err(Error::VariableLookupFailure(var_name)),
+            Empty => Err(Error::VariableLookupFailure(var_name.clone())),
             Push { var, value, parent } => {
-                if var == var_name {
+                if var == *var_name {
                     Ok(parent)
                 } else {
                     let parent = parent.drop_(var_name)?;
@@ -580,6 +763,10 @@ impl Env {
         }
         self
     }
+
+    fn extend_from_pattern_branch_env(mut self, env_pb: pattern_branch::Env<Value>) -> Self {
+        self.extend_many(env_pb.bindings.into_iter())
+    }
 }
 
 // ===Error===
@@ -588,37 +775,26 @@ pub enum Error {
     FunctionLookupFailure(FunctionName),
     FunctionCallArityMismatch { fn_name: FunctionName, expected: usize, received: usize },
     VariableLookupFailure(VariableName),
-    UnableToFindMatchingPattern,
-    InvalidPatternMatch(PatternMatchErrror),
+    PatternMatch(pattern_branch::Error<Value>),
     UnconsumedResources(Env),
     AttemptToSendMessageToNonObject(Value),
 }
 
-#[derive(Debug)]
-pub enum PatternMatchErrror {
-    TaggedValueFedToNonTaggedPattern,
-    TupleFedToNonTuplePattern,
-    TupleSizesDidNotMatch,
-    TupleMatchedAgainstMatchExpressionWithMultipleBranches,
-    AttemptToMatchNonInductiveValue,
-    AttemptToMatchNonTupleToTuplePattern,
-}
-
 // ===Evaluation===
-pub fn eval_start(program: Program, e: Expression) -> Result<(Program, Value), Error> {
-    let (env, value) = eval(&program, Env::new(), e)?;
+pub fn eval_start(program: &Program, e: Expression) -> Result<Value, Error> {
+    let (env, value) = eval(program, Env::new(), &e)?;
     if env.is_empty() {
-        Ok((program, value))
+        Ok(value)
     } else {
         Err(Error::UnconsumedResources(env))
     }
 }
 
 // Both the environment and the expression should be completely consumed to construct the final value.
-fn eval(program: &Program, env: Env, e: Expression) -> Result<(Env, Value), Error> {
+fn eval(program: &Program, env: Env, e: &Expression) -> Result<(Env, Value), Error> {
     use Expression0::*;
-    match *e.0 {
-        Int(x) => Ok((env, Value::Int(x))),
+    match &(*e.0) {
+        Int(x) => Ok((env, Value::Int(*x))),
         OperationApplication1(code, e0) => {
             let (env, val0) = eval(program, env, e0)?;
             use OperationCode::*;
@@ -669,12 +845,17 @@ fn eval(program: &Program, env: Env, e: Expression) -> Result<(Env, Value), Erro
                 env = env0;
                 values.push(val);
             }
-            let val = apply_function(program, fn_name, values)?;
+
+            let Some(fn_def) = program.get_function_definition(fn_name.clone()) else { return Err(Error::FunctionLookupFailure(fn_name.clone())) };
+            let val = apply_function(program, fn_def, values)?;
             Ok((env, val))
         }
+        Tag_(tag) => {
+            Ok((env, Value::Tag(tag.clone())))
+        },
         Tagged(tag, e) => {
             let (env, val) = eval(program, env, e)?;
-            Ok((env, Value::Tagged(tag, Box::new(val))))
+            Ok((env, Value::Tagged(tag.clone(), Box::new(val))))
         },
         Tuple(args) => {
             let mut env = env;
@@ -701,13 +882,19 @@ fn eval(program: &Program, env: Env, e: Expression) -> Result<(Env, Value), Erro
             let env = env.drop_(var_name)?;
             eval(program, env, expr)
         },
-        Match { arg, branches } => {
+        Match { arg, branch } => {
             let (env, arg_value) = eval(program, env, arg)?;
-            apply_msg_to_branches(program, env, branches, arg_value)
+            match pattern_branch::match_(arg_value.to_shape(), branch) {
+                Ok((env_pb, body)) => {
+                    let env = env.extend_from_pattern_branch_env(env_pb);
+                    eval(program, env, body)
+                },
+                Err(err) => Err(Error::PatternMatch(err))
+            }
         },
         LetMove { arg, var, body } => {
             let (env, arg_value) = eval(program, env, arg)?;
-            let env = env.extend(var, arg_value);
+            let env = env.extend(var.clone(), arg_value);
             eval(program, env, body)
         },
         // Now here is a big problem. The object should not capture the whole environement.
@@ -719,19 +906,23 @@ fn eval(program: &Program, env: Env, e: Expression) -> Result<(Env, Value), Erro
         // the environment that are captured can be known statically.
         Object { captured_bindings, branches } => {
             let (env, captured_env) = eval_bindings(program, env, captured_bindings)?;
-            Ok((env, Value::ClosureObject { captured_env, branches }))
+            // TODO
+            todo!()
+            // Ok((env, Value::ClosureObject { captured_env, branches }))
         },
         Send(e0, e1) => {
             let (env, obj) = eval(program, env, e0)?;
             match obj {
                 Value::ClosureObject { captured_env, branches } => {
-                    let (env, msg) = eval(program, env, e1)?;
-                    let (captured_env, val) = apply_msg_to_branches(program, captured_env, branches, msg)?;
-                    if captured_env.is_empty() {
-                        Ok((env, val))
-                    } else {
-                        Err(Error::UnconsumedResources(captured_env))
-                    }
+                    // TODO
+                    todo!()
+                    // let (env, msg) = eval(program, env, e1)?;
+                    // let (captured_env, val) = apply_msg_to_branches(program, captured_env, &branches, msg)?;
+                    // if captured_env.is_empty() {
+                    //     Ok((env, val))
+                    // } else {
+                    //     Err(Error::UnconsumedResources(captured_env))
+                    // }
                 },
                 obj => Err(Error::AttemptToSendMessageToNonObject(obj)),
             }
@@ -741,159 +932,28 @@ fn eval(program: &Program, env: Env, e: Expression) -> Result<(Env, Value), Erro
 
 // We return `(Env, Env)`.
 // The first component is what remains of `env`, while the second is the result of evaluating `bindings`
-fn eval_bindings(program: &Program, env: Env, bindings: Bindings) -> Result<(Env, Env), Error> {
+fn eval_bindings(program: &Program, env: Env, bindings: &Bindings) -> Result<(Env, Env), Error> {
     use Bindings0::*;
-    match *bindings.0 {
+    match &(*bindings.0) {
         Empty => Ok((env, Env::new())),
         Push { var, expr, parent } => {
             let (env, bindings_env_parent) = eval_bindings(program, env, parent)?;
             // TODO: Would be nice to have dependent bindings, but it's not trivial to implement.
             let (env, val) = eval(program, env, expr)?;
-            let bindings_env_parent = bindings_env_parent.extend(var, val);
+            let bindings_env_parent = bindings_env_parent.extend(var.clone(), val);
             Ok((env, bindings_env_parent))
         },
     }
 }
 
-//   [v1, v2, v3]
-//
-//   [p1, p2, p3] => e0
-//   [p1, p2, p3] => e1
-// ~>
-//  [[p1] , [p2] , [p3]]  => [e0,]
-//  [[p1]   [p2]   [p3]]  => [e1 ]
-
-// WARNING: This is a transposed version of patterns.
-#[derive(Debug)]
-pub struct TuplePatternBranches {
-    pattern_columns: Vec<Vec<Pattern>>,
-    bodies: Vec<Expression>,
-}
-
-impl TuplePatternBranches {
-    fn new(number_of_branches: usize, tuple_count: usize) -> Self {
-        let mut pattern_columns = Vec::with_capacity(tuple_count);
-        for _ in 0..tuple_count {
-            pattern_columns.push(Vec::with_capacity(number_of_branches));
-        }
-        let bodies = Vec::with_capacity(number_of_branches);
-        Self { pattern_columns, bodies }
-    }
-}
-
-// TODO: There should be some syntactic check
-//       that makes sure that `match` expressions are either
-//          a single match-all
-//       or a bunch of pattertns that query the tag
-//       or a single tuple pattern.
-//
-//
-// Should we allow the following?
-// match (v1, v2) {
-// | (#A, #A) . ...
-// | (#A, #B) . ...
-// | (#B, #A) . ...
-// | (#B, #B) . ...
-// }
-// Right now we won't.
-// Instead do the following
-// match (v1, v2) {
-// | (x, y) . match x {
-//   | #A . match y {
-//     | #A . ...
-//     | #B . ...
-//     }
-//   | #B . match x {
-//     | #A . ...
-//     | #B . ...
-//     }
-//   }
-// }
-fn apply_msg_to_branches(program: &Program, env: Env, branches: Vec<PatternBranch>, val: Value) -> Result<(Env, Value), Error> {
-    if branches.len() == 0 { return Err(Error::UnableToFindMatchingPattern) }
-    if branches.len() == 1 && matches!(branches[0].pattern, Pattern::Variable(_)) { // non-destructive read
-        // Can't just do branches[0]... that has ownership problems for some reason.
-        let PatternBranch { pattern, body } =  branches.into_iter().next().unwrap();
-        match pattern {
-            Pattern::Variable(var) => {
-                let env = env.extend(var, val);
-                return eval(program, env, body)
-            },
-            _ => unreachable!(),
-        }
-    }
-    match val {
-        Value::Tagged(tag0, val) => {
-            let mut filtered_branches: Vec<PatternBranch> = vec![];
-            for PatternBranch { pattern, body } in branches {
-                match pattern {
-                    Pattern::Tagged(tag, pattern) => {
-                        if tag == tag0 {
-                            filtered_branches.push(PatternBranch { pattern: *pattern, body });
-                        }
-                    },
-                    _ => return Err(Error::InvalidPatternMatch(PatternMatchErrror::TaggedValueFedToNonTaggedPattern))
-                }
-            }
-            apply_msg_to_branches(program, env, filtered_branches, *val)
-        },
-        Value::Tuple(values) => {
-            // We require in this case that we have exactly one branch that destructures the tuple,
-            // and that the patterns are match-all variables or tuple-patterns
-            if branches.len() == 1 {
-                let branch = branches.into_iter().next().unwrap();
-                match branch.pattern {
-                    Pattern::Tuple(patterns) => apply_tuple_to_branch(program, env, patterns, branch.body, values),
-                    _ => return Err(Error::InvalidPatternMatch(PatternMatchErrror::TupleFedToNonTuplePattern)),
-                }
-            } else {
-                Err(Error::InvalidPatternMatch(PatternMatchErrror::TupleMatchedAgainstMatchExpressionWithMultipleBranches))
-            }
-        },
-        _ => {
-            // The only pattern that could match this is MatchAll (i.e. a variable).
-            // In which case we would have already matched this. This means that we have an error
-            // here, e.g. someone fed an object into a match case that's not a match-all.
-            Err(Error::InvalidPatternMatch(PatternMatchErrror::AttemptToMatchNonInductiveValue))
-        },
-    }
-}
-fn apply_tuple_to_branch(program: &Program, env: Env, patterns: Vec<TuplePattern>, body: Expression, values: Vec<Value>) -> Result<(Env, Value), Error> {
-    let env = bind_tuple_to_tuple_pattern(program, env, patterns, values)?;
-    eval(program, env, body)
-}
-fn bind_tuple_to_tuple_pattern(program: &Program, mut env: Env, patterns: Vec<TuplePattern>, values: Vec<Value>) -> Result<Env, Error> {
-    if patterns.len() != values.len() {
-        return Err(Error::InvalidPatternMatch(PatternMatchErrror::TupleSizesDidNotMatch))
-    }
-    for (pattern, val) in patterns.into_iter().zip(values) {
-        match pattern {
-            TuplePattern::Variable(var) => {
-                env = env.extend(var, val);
-            },
-            TuplePattern::Tuple(patterns) => {
-                match val {
-                    Value::Tuple(values) => {
-                        let env0 = bind_tuple_to_tuple_pattern(program, env, patterns, values)?;
-                        env = env0;
-                    },
-                    _ => return Err(Error::InvalidPatternMatch(PatternMatchErrror::AttemptToMatchNonTupleToTuplePattern)),
-                }
-            },
-        }
-    }
-    Ok(env)
-}
-
-fn apply_function(program: &Program, fn_name: FunctionName, arg_values: Vec<Value>) -> Result<Value, Error> {
-    let Some(fn_def) = program.get_clone_of_function_definition(fn_name.clone()) else { return Err(Error::FunctionLookupFailure(fn_name)) };
+fn apply_function(program: &Program, fn_def: &FunctionDefinition, arg_values: Vec<Value>) -> Result<Value, Error> {
     let num_of_arguments: usize = fn_def.parameters.len();
     if num_of_arguments != arg_values.len() {
-        return Err(Error::FunctionCallArityMismatch { fn_name, expected: num_of_arguments, received: arg_values.len() })
+        return Err(Error::FunctionCallArityMismatch { fn_name: fn_def.name.clone(), expected: num_of_arguments, received: arg_values.len() })
     }
     
-    let env = Env::new().extend_many(fn_def.parameters.into_iter().zip(arg_values));
-    let (env, val) = eval(program, env, fn_def.body)?;
+    let env = Env::new().extend_many(fn_def.parameters.iter().zip(arg_values).map(|(var, val)| (var.clone(), val)));
+    let (env, val) = eval(program, env, &fn_def.body)?;
     if env.is_empty() {
         Ok(val)
     } else {

@@ -4,6 +4,7 @@ mod tokenizer;
 mod syntax;
 mod identifier;
 mod calculi;
+mod pattern_branch;
 
 use clap;
 use rustyline:: history::FileHistory;
@@ -85,7 +86,6 @@ fn repl(cli_subcommand_repl: CliSubcommandRepl) -> rustyline::Result<()> {
     }
     Ok(())
 }
-
 
 fn main() -> rustyline::Result<()> {
     let mode = {
