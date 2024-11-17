@@ -53,14 +53,14 @@ fn example_tuple_1[] {
 
 fn map-server[f, xs] { match %xs {
   #nil . match send[%f, #stop] { [] . #nil }
-| #cons[x, xs] . match send[%f, #apply[%x]] {
+| #cons[x, xs] . match send[%f, #inc %x ] {
     [y, f] . #cons[%y, map-server[%f, %xs]]
   }
 }}
 
 fn incrementing-server[] { obj { . {
 | #stop . []
-| #apply[x] . [+[%x, 1], incrementing-server[]]
+| #inc x . [+[%x, 1], incrementing-server[]]
 }}}
 
 fn range-iter[n, i] { 

@@ -30,3 +30,39 @@
     let { x = 123 . [clone x, %x] } // is fine
     let { x = 123 . [%x, clone x] } // is not fine, it will crash
   Now order of evaluation is important.
+
+* sending 'static' messages to 'dynamic' coinductive objects  vs  matching 'dynamic' inductive data with 'static' branches.
+    match-ind[%dynamic-ind-data, static-branch]     vs     match-coind[static-message, %dynamic-coind-obj]
+  Syntactically we have different names (and for mathc-coind, we flip the arguments because otherwise we would be plagued with syntactic ambiguity in the parser)
+    match[%dynamic-ind-data, static-branch]     vs     send[%dynamic-coind-obj, static-message]
+  The ordering is unfortunate. Would be cool to have syntax that can capture the symmetry.
+
+  Also in inductive case, all of the inductive data must be consumed at once, since the branches are static.
+  Because of the 'static' branches, we have to go as deeply as possible in the match so that we are not left with a 'static' branch at compile time (which suddenly sounds like it could be resolved via dynamic object...)
+
+  In the coinductive case, we can send the messages 'partially'... and still get reasonable intermediate objects.
+  Consider, instead of sending
+    send %obj @msg0 @msg1 [12, 3, 4] @msg2
+  we can do
+    let obj = send %obj @msg0 @msg1
+    let obj = send %obj [12, 3, 4] @msg2
+
+  How could %obj look like? Something like
+    obj {
+    | @msg0 { @msg1 [x, y, z] @msg2 .
+            | ...
+            }
+        f[x, y, z]
+    | ...
+    }
+  And with the partiality of send in mind that's equivalent to
+    obj {
+    | @msg0 . obj { 
+              | @msg1 . obj { [x, y, z] . obj { @msg2 . ... } } 
+              | ...
+              }
+    | ...
+    }
+
+* Get your abstract syntax right - and it should be very simple. Then you can build concrete syntax on top of it.
+

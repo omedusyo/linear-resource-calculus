@@ -77,7 +77,7 @@ fn expression_vector(input: TokenStream) -> IResult0<Vec<Expression>> {
 }
 
 // #tag
-fn parse_tag(input: TokenStream) -> IResult0<Tag> {
+fn parse_tag_as_constructor(input: TokenStream) -> IResult0<Tag> {
     use Token::*;
     let (input, token0) = anytoken(input)?;
     match token0 {
@@ -90,7 +90,7 @@ fn parse_tag(input: TokenStream) -> IResult0<Tag> {
 }
 
 // @msg
-fn parse_message(input: TokenStream) -> IResult0<Tag> {
+fn parse_tag_as_message(input: TokenStream) -> IResult0<Tag> {
     use Token::*;
     let (input, token0) = anytoken(input)?;
     match token0 {
@@ -216,7 +216,7 @@ fn parse_or_branch(input: TokenStream) -> IResult0<pattern_branch::OrBranch<Expr
 //   #tag x . body
 fn parse_tag_branch(input: TokenStream) -> IResult0<(Tag, pattern_branch::BranchOrBody<Expression>)> {
     use Token::*;
-    let (input, tag) = parse_tag(input)?;
+    let (input, tag) = parse_tag_as_constructor(input)?;
     let (input_if_commited, token0) = anytoken(input)?;
     match token0 {
         TagSymbol => { // do not commit
@@ -482,7 +482,6 @@ pub enum Expression0 {
     Object { captured_bindings: Bindings, branch: pattern_branch::Branch<Expression> },
     Send(Expression, Expression),
 }
-
 #[derive(Debug, PartialEq, Clone)]
 pub enum OperationCode {
     Add,
