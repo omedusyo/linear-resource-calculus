@@ -63,7 +63,7 @@ impl <Body> Branch<Body> {
         use Pattern0::*;
         match &(*(pattern.0)) {
             MatchAllPattern(var_name) => Branch::match_all(MatchAllBranch::new(var_name.clone(), body)),
-            Tuple(tuple_patterns) => Branch::and(AndBranch::new(tuple_patterns.to_vec(), body)),
+            Tuple(patterns) => Branch::and(AndBranch::new(patterns.to_vec(), body)),
         }
     }
 }
@@ -97,13 +97,13 @@ impl <Body> OrBranch<Body> {
 pub struct AndBranch<Body>(Rc<AndBranch0<Body>>);
 #[derive(Debug)]
 struct AndBranch0<Body> {
-    tuple_patterns: Vec<Pattern>,
+    patterns: Vec<Pattern>,
     body: Body,
 }
 
 impl <Body> AndBranch<Body> {
-    pub fn new(tuple_patterns: Vec<Pattern>, body: Body) -> Self {
-        Self(Rc::new(AndBranch0 { tuple_patterns, body }))
+    pub fn new(patterns: Vec<Pattern>, body: Body) -> Self {
+        Self(Rc::new(AndBranch0 { patterns, body }))
     }
 }
 
@@ -203,52 +203,52 @@ pub fn match_<'branch, Body, Value: PatternMatchableValue>(
     match_loop(Env::new(), value_shape, branch)
 }
 
+// TODO:
+// #[cfg(test)]
+// mod test {
+//     use super::*;
 
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    #[derive(Debug)]
-    pub enum Value {
-        Int(i32),
-        Tag(Tag),
-        Tagged(Tag, Box<Value>),
-        Tuple(Vec<Value>),
-    }
-    impl PatternMatchableValue for Value {
-        fn to_shape(self) -> ValueShape<Self>  {
-            use Value::*;
-            match self {
-                Tagged(tag, value) => ValueShape::tagged(tag, value.to_shape()),
-                Tuple(values) => ValueShape::tuple(values.into_iter().map(|val| val.to_shape()).collect()),
-                val => ValueShape::value(val),
-            }
-        }
-        fn from_shape(value_shape: ValueShape<Self>) -> Self  {
-            use Value::*;
-            match *value_shape.0 {
-                ValueShape0::Value(value) => value,
-                ValueShape0::Tuple(value_shapes) => Tuple(value_shapes.into_iter().map(|value_shape| PatternMatchableValue::from_shape(value_shape)).collect()),
-                ValueShape0::Tagged(tag, value_shape) => Tagged(tag, Box::new(PatternMatchableValue::from_shape(value_shape))),
-                ValueShape0::Tag(tag) => Tag(tag),
-            }
-        }
-    }
+//     #[derive(Debug)]
+//     pub enum Value {
+//         Int(i32),
+//         Tag(Tag),
+//         Tagged(Tag, Box<Value>),
+//         Tuple(Vec<Value>),
+//     }
+//     impl PatternMatchableValue for Value {
+//         fn to_shape(self) -> ValueShape<Self>  {
+//             use Value::*;
+//             match self {
+//                 Tagged(tag, value) => ValueShape::tagged(tag, value.to_shape()),
+//                 Tuple(values) => ValueShape::tuple(values.into_iter().map(|val| val.to_shape()).collect()),
+//                 val => ValueShape::value(val),
+//             }
+//         }
+//         fn from_shape(value_shape: ValueShape<Self>) -> Self  {
+//             use Value::*;
+//             match *value_shape.0 {
+//                 ValueShape0::Value(value) => value,
+//                 ValueShape0::Tuple(value_shapes) => Tuple(value_shapes.into_iter().map(|value_shape| PatternMatchableValue::from_shape(value_shape)).collect()),
+//                 ValueShape0::Tagged(tag, value_shape) => Tagged(tag, Box::new(PatternMatchableValue::from_shape(value_shape))),
+//                 ValueShape0::Tag(tag) => Tag(tag),
+//             }
+//         }
+//     }
 
 
-    impl PatternMatchableValue for Value {
-        fn to_shape(self) -> ValueShape<Self> where Self: Sized {
-            todo!()
-        }
-        fn from_shape(value_shape: ValueShape<Self>) -> Self where Self: Sized {
-            todo!()
-        }
-    }
+//     impl PatternMatchableValue for Value {
+//         fn to_shape(self) -> ValueShape<Self> where Self: Sized {
+//             todo!()
+//         }
+//         fn from_shape(value_shape: ValueShape<Self>) -> Self where Self: Sized {
+//             todo!()
+//         }
+//     }
 
-    #[test]
-    fn example0() {
-    }
-}
+//     #[test]
+//     fn example0() {
+//     }
+// }
 fn match_loop<'branch, Body, Value: PatternMatchableValue>(
     env: Env<Value>,
     value_shape: ValueShape<Value>,
@@ -257,12 +257,7 @@ fn match_loop<'branch, Body, Value: PatternMatchableValue>(
     use ValueShape0::*;
     use Branch0::*;
     match &(*branch.0) {
-        MatchAll(match_all_branch) => {
-            let match_all_branch = &(*match_all_branch.0);
-            let value = PatternMatchableValue::from_shape(value_shape);
-            let env = env.extend(match_all_branch.var.clone(), value);
-            return Ok((env, &match_all_branch.body))
-        },
+        MatchAll(match_all_branch) => { return match_all_loop_against_value(env, value_shape, match_all_branch) },
         _ => {}
     }
 
@@ -276,17 +271,11 @@ fn match_loop<'branch, Body, Value: PatternMatchableValue>(
                 And(_and_branch) => Err(Error::AttemptToFeedNonTupleValueIntoAndPatternBranch(value)),
             }
         },
-        Tuple(tuple_value_shapes) => {
+        Tuple(value_shapes) => {
             match &(*branch.0) {
-                And(and_branch) => {
-                    let and_branch = &(*and_branch.0);
-                    let tuple_patterns = &and_branch.tuple_patterns;
-                    let body = &and_branch.body;
-                    let env = match_values_to_patterns(tuple_value_shapes, tuple_patterns, env)?;
-                    Ok((env, body))
-                },
+                And(and_branch) => { match_and_loop_against_values(env, value_shapes, and_branch) },
                 Or(_or_branch) => {
-                    let value_shape = ValueShape(Box::new(Tuple(tuple_value_shapes)));
+                    let value_shape = ValueShape(Box::new(Tuple(value_shapes)));
                     Err(Error::AttemptToFeedNonTaggedValueIntoOrPatternBranch(PatternMatchableValue::from_shape(value_shape)))
                 }
                 MatchAll(_) => { unreachable!() },
@@ -294,24 +283,7 @@ fn match_loop<'branch, Body, Value: PatternMatchableValue>(
         },
         Tagged(tag, value_shape) => {
             match &(*branch.0) {
-                Or(or_branch) => {
-                    let tagged_branches = &(*or_branch.0).0;
-                    for (tag0, branch_or_body) in tagged_branches.iter() {
-                        if tag == *tag0 {
-                            match branch_or_body {
-                                BranchOrBody::Branch(branch) => {
-                                    return match_loop(env, value_shape, branch);
-                                },
-                                BranchOrBody::Body(_body) => {
-                                    let value_shape = ValueShape(Box::new(Tagged(tag, value_shape)));
-                                    let value = PatternMatchableValue::from_shape(value_shape);
-                                    return Err(Error::AttemptToFeedNonTagValueIntoTagPattern(value))
-                                },
-                            }
-                        }
-                    }
-                    Err(Error::UnableToMatchTag(tag))
-                },
+                Or(or_branch) => { match_or_loop_against_tagged_value(env, tag, value_shape, or_branch) },
                 And(_and_branch) => {
                     let value_shape = ValueShape(Box::new(Tagged(tag, value_shape)));
                     Err(Error::AttemptToFeedNonTupleValueIntoAndPatternBranch(PatternMatchableValue::from_shape(value_shape)))
@@ -321,24 +293,7 @@ fn match_loop<'branch, Body, Value: PatternMatchableValue>(
         },
         Tag(tag) => {
             match &(*branch.0) {
-                Or(or_branch) => {
-                    let tagged_branches = &(*or_branch.0).0;
-                    for (tag0, branch_or_body) in tagged_branches.iter() {
-                        if tag == *tag0 {
-                            match branch_or_body {
-                                BranchOrBody::Branch(_branch) => {
-                                    let value_shape = ValueShape(Box::new(Tag(tag)));
-                                    let value = PatternMatchableValue::from_shape(value_shape);
-                                    return Err(Error::AttemptToFeedTagIntoComplexTaggedBranch(value))
-                                },
-                                BranchOrBody::Body(body) => {
-                                    return Ok((env, body))
-                                },
-                            }
-                        }
-                    }
-                    Err(Error::UnableToMatchTag(tag))
-                },
+                Or(or_branch) => { match_or_loop_against_tag(env, tag, or_branch) },
                 And(_and_branch) => {
                     let value_shape = ValueShape(Box::new(Tag(tag)));
                     Err(Error::AttemptToFeedNonTupleValueIntoAndPatternBranch(PatternMatchableValue::from_shape(value_shape)))
@@ -349,17 +304,86 @@ fn match_loop<'branch, Body, Value: PatternMatchableValue>(
     }
 }
 
+pub fn match_all_loop_against_value<'branch, Body, Value: PatternMatchableValue>(
+    env: Env<Value>,
+    value_shape: ValueShape<Value>,
+    match_all_branch: &'branch MatchAllBranch<Body>,
+) -> Result<(Env<Value>, &'branch Body), Error<Value>> {
+    let match_all_branch = &(*match_all_branch.0);
+    let value = PatternMatchableValue::from_shape(value_shape);
+    let env = env.extend(match_all_branch.var.clone(), value);
+    return Ok((env, &match_all_branch.body))
+}
+
+pub fn match_and_loop_against_values<'branch, Body, Value: PatternMatchableValue>(
+    env: Env<Value>,
+    value_shapes: Vec<ValueShape<Value>>,
+    and_branch: &'branch AndBranch<Body>,
+) -> Result<(Env<Value>, &'branch Body), Error<Value>> {
+    let and_branch = &(*and_branch.0);
+    let tuple_patterns = &and_branch.patterns;
+    let body = &and_branch.body;
+    let env = match_values_to_patterns(value_shapes, tuple_patterns, env)?;
+    Ok((env, body))
+}
+
+pub fn match_or_loop_against_tagged_value<'branch, Body, Value: PatternMatchableValue>(
+    env: Env<Value>,
+    tag: Tag,
+    value_shape: ValueShape<Value>,
+    or_branch: &'branch OrBranch<Body>,
+) -> Result<(Env<Value>, &'branch Body), Error<Value>> {
+    let tagged_branches = &(*or_branch.0).0;
+    for (tag0, branch_or_body) in tagged_branches.iter() {
+        if tag == *tag0 {
+            match branch_or_body {
+                BranchOrBody::Branch(branch) => {
+                    return match_loop(env, value_shape, branch);
+                },
+                BranchOrBody::Body(_body) => {
+                    let value_shape = ValueShape::tagged(tag, value_shape);
+                    let value = PatternMatchableValue::from_shape(value_shape);
+                    return Err(Error::AttemptToFeedNonTagValueIntoTagPattern(value))
+                },
+            }
+        }
+    }
+    Err(Error::UnableToMatchTag(tag))
+}
+
+pub fn match_or_loop_against_tag<'branch, Body, Value: PatternMatchableValue>(
+    env: Env<Value>,
+    tag: Tag,
+    or_branch: &'branch OrBranch<Body>,
+) -> Result<(Env<Value>, &'branch Body), Error<Value>> {
+    let tagged_branches = &(*or_branch.0).0;
+    for (tag0, branch_or_body) in tagged_branches.iter() {
+        if tag == *tag0 {
+            match branch_or_body {
+                BranchOrBody::Branch(_branch) => {
+                    let value_shape = ValueShape::tag(tag);
+                    let value = PatternMatchableValue::from_shape(value_shape);
+                    return Err(Error::AttemptToFeedTagIntoComplexTaggedBranch(value))
+                },
+                BranchOrBody::Body(body) => {
+                    return Ok((env, body))
+                },
+            }
+        }
+    }
+    Err(Error::UnableToMatchTag(tag))
+}
 
 fn match_values_to_patterns<Value: PatternMatchableValue>(
-    tuple_value_shapes: Vec<ValueShape<Value>>,
-    tuple_patterns: &[Pattern],
+    value_shapes: Vec<ValueShape<Value>>,
+    patterns: &[Pattern],
     mut env: Env<Value>,
 ) -> Result<Env<Value>, Error<Value>> {
-    if tuple_value_shapes.len() != tuple_patterns.len() {
+    if value_shapes.len() != patterns.len() {
         return Err(Error::AttemptToMatchTuplesToTuplePatternsOfDifferingLengths)
     }
-    for (value_shape, tuple_pattern) in tuple_value_shapes.into_iter().zip(tuple_patterns) {
-        env = match_value_to_pattern(value_shape, tuple_pattern, env)?;
+    for (value_shape, pattern) in value_shapes.into_iter().zip(patterns) {
+        env = match_value_to_pattern(value_shape, pattern, env)?;
     }
     Ok(env)
 }
@@ -383,7 +407,7 @@ fn match_value_to_pattern<Value: PatternMatchableValue>(
     match *value_shape.0 {
         Tag(tag) => match &(*pattern.0) {
             Pattern0::MatchAllPattern(_) => { unreachable!() },
-            Pattern0::Tuple(_tuple_pattern) => {
+            Pattern0::Tuple(_patterns) => {
                 let tuple_shape = ValueShape(Box::new(Tag(tag)));
                 let value = PatternMatchableValue::from_shape(tuple_shape);
                 Err(Error::AttemptToFeedNonTupleValueIntoAndPatternBranch(value))
@@ -391,7 +415,7 @@ fn match_value_to_pattern<Value: PatternMatchableValue>(
         },
         Tagged(tag, value_shape) => match &(*pattern.0) {
             Pattern0::MatchAllPattern(_) => { unreachable!() },
-            Pattern0::Tuple(_tuple_pattern) => {
+            Pattern0::Tuple(_patterns) => {
                 let tuple_shape = ValueShape(Box::new(Tagged(tag, value_shape)));
                 let value = PatternMatchableValue::from_shape(tuple_shape);
                 Err(Error::AttemptToFeedNonTupleValueIntoAndPatternBranch(value))
@@ -399,14 +423,14 @@ fn match_value_to_pattern<Value: PatternMatchableValue>(
         },
         Value(value) => match &(*pattern.0) {
             Pattern0::MatchAllPattern(_) => { unreachable!() },
-            Pattern0::Tuple(_tuple_pattern) => {
+            Pattern0::Tuple(_patterns) => {
                 Err(Error::AttemptToFeedNonTupleValueIntoAndPatternBranch(value))
             },
         },
         Tuple(tuple_shape) => match &(*pattern.0) {
             Pattern0::MatchAllPattern(_) => { unreachable!() },
-            Pattern0::Tuple(tuple_pattern) => {
-                match_values_to_patterns(tuple_shape, tuple_pattern, env)
+            Pattern0::Tuple(patterns) => {
+                match_values_to_patterns(tuple_shape, patterns, env)
             },
         },
     }
