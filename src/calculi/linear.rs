@@ -492,7 +492,6 @@ pub enum OperationCode {
     Discard,
 }
 
-
 #[derive(Debug, Clone)]
 pub struct Bindings(Box<Bindings0>);
 
@@ -726,7 +725,11 @@ pub enum Error {
 
 // ===Evaluation===
 pub fn eval_start(program: &Program, e: Expression) -> Result<Value, Error> {
-    let (env, value) = eval(program, Env::new(), &e)?;
+    eval_consumming(program, Env::new(), &e)
+}
+
+fn eval_consumming(program: &Program, env: Env, e: &Expression) -> Result<Value, Error> {
+    let (env, value) = eval(program, env, e)?;
     if env.is_empty() {
         Ok(value)
     } else {
@@ -860,12 +863,7 @@ fn eval(program: &Program, env: Env, e: &Expression) -> Result<(Env, Value), Err
                     match pattern_branch::match_(msg.to_shape(), &branch) {
                         Ok((env_pb, body)) => {
                             let captured_env = captured_env.extend_from_pattern_branch_env(env_pb);
-                            let (captured_env, val) = eval(program, captured_env, body)?;
-                            if captured_env.is_empty() {
-                                Ok((env, val))
-                            } else {
-                                Err(Error::UnconsumedResources(captured_env))
-                            }
+                            Ok((env, eval_consumming(program, captured_env, body)?))
                         },
                         Err(err) => Err(Error::PatternMatch(err))
                     }
