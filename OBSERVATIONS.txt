@@ -65,4 +65,16 @@
     }
 
 * Get your abstract syntax right - and it should be very simple. Then you can build concrete syntax on top of it.
+* For a type theory, if you don't understand how cut/let works, you don't understand your type theory. That's the most fundamental thing.
 
+
+* In Cartesian World you have shallow cloning.
+  In Linear World, you don't have deep cloning universally... but that's not the correct analogue of shallow cloning...
+  Cartesian                            vs        Linear
+    $x shallow-clone                                %a  move
+    shallow-clone : Env -> (Env, Env)               split : Env -> (Env, Env)     // this is only informal analogy, formally this is more complex
+    let { x = e . body }                            cut { a = e . body }
+  I bet you can do a whole theory parametrized by what sort of environment you want, which is probably some sort of monoid/comonoid...
+  To get Cartesian programming, you have the cartesian environments which are made to be trivially clonable.
+  To get Linear programming, you have the linear environments, which seem to be captured by the monoid of multisubsets of values.
+  To get "Ordered" programming (not sure what name would be appropriate for this yet), you take environemnts made from List[Value].

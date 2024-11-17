@@ -346,8 +346,25 @@ pub fn parse_expression(input: TokenStream) -> IResult0<Expression> {
                     let (input, _) = token(TokenType::BindingSeparator)(input)?;
                     let (input, body) = parse_expression(input)?;
                     let (input, _) = token(TokenType::CloseCurly)(input)?;
-
                     Ok((input, Expression::let_move(bindings, body)))
+                },
+                "cut" => {
+                    // Basic cut of bindings
+                    //   cut { a = 5 . body }
+                    //   cut { a = 5, b = 6 . body }
+                    // TODO:
+                    // The following is just syntactic sugar for `match [1, 2] { [a, b] . body }
+                    //   cut { [a, b] = [1, 2] . body } 
+                    // TODO: Not sure about this...
+                    // The following is just syntactic sugar for `match [   [1, 2],   [512, [60, 61], []]  ] { [a, b] . body }`
+                    //   cut { [a, b] = [1, 2], [c, [d0, d1], []] = [512, [60, 61], []] . body } 
+                    let (input, _) = token(TokenType::OpenCurly)(input)?;
+                    let (input, bindings) = parse_bindings(input)?;
+                    let (input, _) = token(TokenType::BindingSeparator)(input)?;
+                    let (input, body) = parse_expression(input)?;
+                    let (input, _) = token(TokenType::CloseCurly)(input)?;
+
+                    Ok((input, Expression::cut(bindings, body)))
                     // TODO: Reintroduce pattern bindings again...
                     // Check if this is a tuple pattern or identifier.
                     // let (input_if_commited, token0) = anytoken(input)?;
@@ -387,14 +404,9 @@ pub fn parse_expression(input: TokenStream) -> IResult0<Expression> {
                     Ok((input, Expression::match_(arg, branches)))
                 },
                 "obj" => {
-                    // obj { x = e0, y = e1 . #hd [] . body0 | #tl [] . body1 }
-                    let (input, _) = token(TokenType::OpenCurly)(input)?;
-                    let (input, bindings) = parse_bindings(input)?;
-                    let (input, _) = token(TokenType::BindingSeparator)(input)?;
-
+                    // obj { #hd [] . body0 | #tl [] . body1 }
                     let (input, branches) = parse_branch(input)?;
-                    let (input, _) = token(TokenType::CloseCurly)(input)?;
-                    Ok((input, Expression::object(bindings, branches)))
+                    Ok((input, Expression::object(branches)))
                 },
                 "send" => {
                     // send[%obj, %msg]
@@ -488,10 +500,10 @@ pub enum Expression0 {
     VarMove(VariableName),
     VarClone(VariableName),
     VarDrop(VariableName, Expression),
+    Cut { bindings: Bindings, body: Expression },
+    // You can always replace LetMove with Cut, but it can be incredebly tedious.
     LetMove { bindings: Bindings, body: Expression },
-    // Here I was forced to include an explicit list of moved bindings.
-    // This will also require an extension in syntax.
-    Object { captured_bindings: Bindings, branch: pattern_branch::Branch<Expression> },
+    Object { branch: pattern_branch::Branch<Expression> },
     Send(Expression, Expression),
 }
 #[derive(Debug, PartialEq, Clone)]
@@ -526,7 +538,8 @@ impl Expression {
     fn var_clone(var: VariableName) -> Self { Self(Box::new(Expression0::VarClone(var))) }
     fn var_drop(var: VariableName, expr: Expression) -> Self { Self(Box::new(Expression0::VarDrop(var, expr))) }
     fn let_move(bindings: Bindings, body: Self) -> Self { Self(Box::new(Expression0::LetMove { bindings, body })) }
-    fn object(moved_env: Bindings, branch: pattern_branch::Branch<Expression>) -> Self { Self(Box::new(Expression0::Object { captured_bindings: moved_env, branch })) }
+    fn cut(bindings: Bindings, body: Self) -> Self { Self(Box::new(Expression0::Cut { bindings, body })) }
+    fn object(branch: pattern_branch::Branch<Expression>) -> Self { Self(Box::new(Expression0::Object { branch })) }
     fn send(obj: Self, msg: Self) -> Self { Self(Box::new(Expression0::Send(obj, msg))) }
 }
 
@@ -711,6 +724,14 @@ impl Env {
     fn extend_from_pattern_branch_env(self, env_pb: pattern_branch::Env<Value>) -> Self {
         self.extend_many(env_pb.bindings.into_iter())
     }
+
+    fn join(mut env0: Self, mut env1: Self) -> Self {
+        while let Env0::Push { var, value, parent } = *env1.0 {
+            env1 = parent;
+            env0 = env0.extend(var, value)
+        }
+        env0
+    }
 }
 
 impl fmt::Display for Env {
@@ -851,21 +872,27 @@ fn eval(program: &Program, env: Env, e: &Expression) -> Result<(Env, Value), Err
                 Err(err) => Err(Error::PatternMatch(err))
             }
         },
-        LetMove { bindings, body } => {
+        Cut { bindings, body } => {
             let (env, captured_env) = eval_bindings(program, env, bindings)?;
             let val = eval_consumming(program, captured_env, body)?;
             Ok((env, val))
         },
-        // Now here is a big problem. The object should not capture the whole environement.
+        LetMove { bindings, body } => {
+            let (env, captured_env) = eval_bindings(program, env, bindings)?;
+            let env = Env::join(env, captured_env);
+            eval(program, env, body)
+        },
+        // Now here is a problem. The object should not capture the whole environement.
         // We should only capture those resources that are needed by the object
         // i.e. we should move them out of the environment, and return the rest of the environment.
-        // I think the correct solution for a dynamic language is to have the move explicitely
+        // To do this, use `let` to separate stuff that you need in the current environment.
         //
-        // This is only a problem in a dynamic language, right? When we have types, the parts of
-        // the environment that are captured can be known statically.
-        Object { captured_bindings, branch } => {
-            let (env, captured_env) = eval_bindings(program, env, captured_bindings)?;
-            Ok((env, Value::ClosureObject { captured_env, branch: branch.clone() }))
+        // I wonder if this is only a problem in dynamic language. When we have types, the parts of
+        // the environment that are captured can be known statically, right? So we wouldn't have to
+        // do the explicit `let`? They'd be infered?
+        Object { branch } => {
+            // Note how this takes ownership of the whole environment and returns nothing!
+            Ok((Env::new(), Value::ClosureObject { captured_env: env, branch: branch.clone() }))
         },
         Send(e0, e1) => {
             let (env, obj) = eval(program, env, e0)?;

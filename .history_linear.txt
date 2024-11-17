@@ -1,70 +1,4 @@
 #V2
-fn pm[x] { match %x { #foo [x] . %x } }
-fn pm[x] { match %x { #foo . %x } }
-pm[#foo 123]
-fn pm[x] { match %x { #foo . %x } }
-#foo
-#foo []
-fn pm[x] { match %x { #foo . %x } }
-pm[#foo 123]
-pm[#foo]
-fn pm[x] { match %x { #foo . %x } }
-pm[#foo]
-fn pm[x] { match %x { #foo []. %x } }
-pm[#foo]
-pm[#foo []]
-fn pm[x] { match %x { #foo []. 123 } }
-pm[#foo []]
-pm[#foo 123]
-fn pm[x] { match %x { #foo [] . %x } }
-fn pm[x] { match %x { x . %x } }
-pm[#foo 123]
-fn pm[x] { match %x { x . %x } }
-pm[#foo 123]
-#foo 123
-#foo[1,2,3]
-#foo
-#fo
-#fasdasdasd
-pm[#foo 123]
-match 123 { #foo x . %x }
-match #foo 123 { #foo x . %x }
-match #foo [] { #foo x . %x }
-match #foo #bar [] { #foo x . %x }
-match #foo #bar [] { #foo #bar x . %x }
-match #foo #bar [1,2] { #foo #bar x . %x }
-match #foo #bar [1,2] { #foo #bar [x, y] . [%y, %x] }
-match #foo #bar [1,[50, 2]] { #foo #bar [x, [y, z]] . [%y, %x, %z] }
-match #foo { #foo . 123 }
-match #foo { #foo . 123 | #bar . 12 }
-match #foo { || #foo . 123 | #bar . 12 }
-match #foo { #foo . 123 | #bar . 12 }
-match #bar { #foo . 123 | #bar . 12 }
-match #a { #a { #a0 . 123 }   }
-match #a #a0 { #a { #a0 . 123 }   }
-match #a #a0 { #a { #a0 . 123 | #a1 . 123 }   }
-match #a #a1 { #a { #a0 . 123 | #a1 . 123 }   }
-match #a #a1 { #a { #a0 . 123 | #a1 . 512 }   }
-match #a #a1 { #a { #a0 . 123 | #a1 [x, y]. [%y, %x] }   }
-match #a #a1 [3, 4] { #a { #a0 . 123 | #a1 [x, y]. [%y, %x] }   }
-range-iter[5, 0]
-dup_nat[#succ#succ#zero[]]
-dup_nat[#succ#succ#zero]
-discard_nat[#succ#succ#zero]
-let { [[[x]], [y, z]] = [[[20]], [30, 40]] . [%y, %x, %z] }
-obj { . { x . 123 }}
-obj { x = 123 . { x . 123 }}
-obj { x = 123 . { a . %x }}
-obj { x = 123 . { #foo . %x }}
-obj { x = 123 . { #foo . 123 }}
-obj {. { #foo[] . 123 } }
-fn nats[n] { %n }
-fn nats[n] { obj { n = %n . { x . %n } } }
-fn nats[n] { obj { n = %n . { | #hd [] . %n | #tl [] . nats[+[%n, 1]] } }}
-fn nats[n] { obj { n = %n . { | #hd . %n | #tl . nats[+[%n, 1]] } }}
-nats[3]
-send[nats[3], #hd]
-send[send[nats[3], #tl], #hd]
 send[send[nats[3], #tl], #tl]
 send[send[send[nats[3], #tl], #tl], #tl]
 fn nats[n] { obj { n = %n . { #hd . %n | #tl . nats[+[%n, 1]] } }}
@@ -99,3 +33,69 @@ pm[#foo 123]
 match #foo #bar [1,[50, 2]] { #foo #bar [x, [y, z]] . [%y, %x, %z] }
 match #a #a1 [3, 4] { #a { #a0 . 123 | #a1 [x, y]. [%y, %x] }   }
 map-server[incrementing-server[], range-iter[5, 0]]
+send[incrementing-server[], #inc 5 ]
+[+[5, 6], 2]
+fn mul_5[x] { *[%x, 5] }
+mul_5[6]
+fn pm[x] { match %x { #foo x . %x } }
+match #foo #bar [1,[50, 2]] { #foo #bar [x, [y, z]] . [%y, %x, %z] }
+match #a #a1 [3, 4] { #a { #a0 . 123 | #a1 [x, y]. [%y, %x] }   }
+pm[#foo 123]
+send[example_tuple_0[], #fst[]]
+send[example_tuple_0[], #fst]
+example_tuple_0[]
+#fst[]
+let { x = 123 . %x }
+let { x = 123 . move x }
+let { x = 123 . [clone x, %x] }
+let { x = 123 . [clone x, move x] }
+let { x = 123 . [%x, clone x] }
+let { x = 123 . [] }
+let { x = 123 . drop x . [] }
+example_tuple_1[]
+range-iter[5, 0]
+range-iter-simpler[5, 0]
+fn f[x] { %x }
+range-iter-simpler[5, 0]
+fn f[x] { %x }
+obj {. { #foo[] . 123 } }
+send[send[send[nats[3], #tl], #tl], #tl]
+send[incrementing-server[], #inc 5 ]
+==[5, 0]
+incrementing-server[]
+range-iter[5, 0]
+range-iter-simpler[5, 0]
+map-server[incrementing-server[], range-iter[5, 0]]
+fib[5, 0]
+let { x = 123 . %x }
+let { x = 123, y = 512 . %y }
+let { x = 123, y = 512 . [%y, %x] }
+let { result = [20, 30] . %result }
+send[fib[3, 5], #next]
+observe-stream[fib[0, 1], 0]
+observe-stream[fib[0, 1], 10]
+send[fib[3, 5], #next]
+observe-stream[fib[0, 1], 0]
+observe-stream[fib[0, 1], 10]
+let { x = 123, y = 512 . [%x, %y] }
+let { x = 123, y = 512 . [let { a = %x . %a }, %y] }
+let { x = 123, y = 512 . [let { a = %x . %a }, let { b = %y . %y }] }
+let { x = 123, y = 512 . [let { a = %x . %a }, let { b = %y . %b }] }
+cut { x = 123 . %x }
+cut { x = 123 . move x }
+cut { x = 123 . [clone x, %x] }
+cut { x = 123 . [clone x, move x] }
+cut { x = 123 . [%x, clone x] }
+cut { x = 123 . [] }
+cut { x = 123 . drop x . [] }
+cut { x = 123 . %x }
+cut { x = 123, y = 512 . [%y, %x] }
+cut { x = 123, y = 512 . [cut { a = %x . %a }, cut { b = %y . %b }] }
+cut { x = 123 . %x }
+let { x = 123 . %x }
+cut { x = 123 . %x }
+cut { x = 123, y = 512 . [%y, %x] }
+cut { x = 123, y = 512 . [cut { a = %x . %a }, cut { b = %y . %b }] }
+let { x = 123 . %x }
+let { x = 123, y = 512 . [%y, %x] }
+let { x = 123, y = 512 . [cut { a = %x . %a }, cut { b = %y . %b }] }

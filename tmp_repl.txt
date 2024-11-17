@@ -196,26 +196,26 @@ pm[#foo 123]
 
 :r
 
-send[example_tuple_0[], #fst[]]
+send[example_tuple_0[], #fst]
 
 example_tuple_0[]
 
 #fst[]
 
 
-let { x = 123 . %x }
+cut { x = 123 . %x }
 
-let { x = 123 . move x }
+cut { x = 123 . move x }
 
-let { x = 123 . [clone x, %x] }
+cut { x = 123 . [clone x, %x] }
 
-let { x = 123 . [clone x, move x] }
+cut { x = 123 . [clone x, move x] }
 
-let { x = 123 . [%x, clone x] }
+cut { x = 123 . [%x, clone x] }
 
-let { x = 123 . [] }
+cut { x = 123 . [] }
 
-let { x = 123 . drop x . [] }
+cut { x = 123 . drop x . [] }
 
 
 
@@ -234,7 +234,7 @@ obj {. { #foo[] . 123 } }
 
 send[send[send[nats[3], #tl], #tl], #tl]
 
-send[incrementing-server[], #apply[5]]
+send[incrementing-server[], #inc 5 ]
 
 
 ==[5, 0]
@@ -267,12 +267,24 @@ send[fib[3, 5], #next]
 
 observe-stream[fib[0, 1], 0]
 
-observe-stream[fib[0, 1], 10]
+observe-stream[fib[0, 1], 11]
+
+cut { x = 123 . %x }
+
+cut { x = 123, y = 512 . [%y, %x] }
+
+let { x = 123 . %x }
+
+let { x = 123, y = 512 . [%y, %x] }
 
 
-let { [x, y] = [20, 30] . [%y, %x] }
 
-let { [[[x]], [y, z]] = [[[20]], [30, 40]] . [%y, %x, %z] }
+let { x = 123, y = 512 . [cut { a = %x . %a }, cut { b = %y . %b }] }
+
+
+cut { [x, y] = [20, 30] . [%y, %x] }
+
+cut { [[[x]], [y, z]] = [[[20]], [30, 40]] . [%y, %x, %z] }
 
 match [20, [30, 40]] { [x, [y, z]] . [%y, %x, %z] }
 
