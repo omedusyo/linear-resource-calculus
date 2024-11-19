@@ -18,9 +18,8 @@ fn discard_bool[b] { match %b {
 
 fn dup_nat[n] { match %n {
 | #zero . [#zero, #zero]
-| #succ n . match dup_nat[%n] {
-    [n0, n1] . [#succ %n0, #succ %n1]
-  }
+| #succ n .
+  let { [n0, n1] = dup_nat[%n] . [#succ %n0, #succ %n1] }
 }}
 
 fn discard_nat[n] { match %n {
@@ -52,9 +51,10 @@ fn example_tuple_1[] {
 }
 
 fn map-server[f, xs] { match %xs {
-  #nil . match send[%f, #stop] { [] . #nil }
-| #cons[x, xs] . match send[%f, #inc %x ] {
-    [y, f] . #cons[%y, map-server[%f, %xs]]
+| #nil . let { [] = send %f #stop  . #nil }
+| #cons[x, xs] .
+  let { [y, f] = send %f #inc %x .
+    #cons[%y, map-server[%f, %xs]]
   }
 }}
 
@@ -64,21 +64,24 @@ fn incrementing-server[] { obj {
 }}
 
 fn range-iter[n, i] { 
-  match dup[%n] { [n-copy, n] .
-  match dup[%i] { [i-copy, i] .
-  match ==[%n, %i] {
-    #T .
-      match discard[%n-copy] { [] .
-      match discard[%i-copy] { [] .
-        #nil
-      }}
-  | #F . match dup[%i-copy] { [i-copy, i] . #cons[%i-copy, range-iter[%n-copy, +[%i, 1]]] }
+  let {
+  , [n-copy, n] = dup[%n] 
+  , [i-copy, i] = dup[%i]
+  . match ==[%n, %i] {
+    | #T .
+      let {
+      , [] = discard[%n-copy]
+      , [] = discard[%i-copy]
+      . #nil
+      }
+    | #F . let { [i-copy, i] = dup[%i-copy] . #cons[%i-copy, range-iter[%n-copy, +[%i, 1]]] }
+    }
   }
-}}}
+}
 
 fn range-iter-simpler[n, i] { 
   match ==[clone n, clone i] {
-    #T .
+  | #T .
       drop n .
       drop i .
       #nil
@@ -99,8 +102,8 @@ fn observe-stream-loop[stream, i, n] { match ==[clone i, clone n] {
     drop n .
     #cont[%stream]
 | #F .
-    let { result = send[%stream, #next] . match %result { [x, stream] .
+    let { [x, stream] = send %stream #next .
       #cons[%x, observe-stream-loop[%stream, +[%i, 1], %n]]
-    }}
+    }
 }}
 

@@ -4,7 +4,7 @@ mod tokenizer;
 mod syntax;
 mod identifier;
 mod calculi;
-mod pattern_branch;
+mod matcher;
 
 use clap;
 use rustyline:: history::FileHistory;

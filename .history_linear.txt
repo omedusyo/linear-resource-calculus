@@ -1,86 +1,83 @@
 #V2
-send[send[nats[3], #tl], #tl]
-send[send[send[nats[3], #tl], #tl], #tl]
-fn nats[n] { obj { n = %n . { #hd . %n | #tl . nats[+[%n, 1]] } }}
-fib[0, 1]
-send[fib[0, 1], #next]
-send[send[fib[0, 1], #next], #next]
-send[fib[0,1], #next]
-send[incrementing-server[], #apply[5]]
-incrementing-server[]
-range-iter[5, 0]
-range-iter-simpler[5, 0]
-range-iter-simpler[0, 0]
-range-iter-simpler[5, 0]
-range-iter[5, 0]
-map-server[incrementing-server[], range-iter[5, 0]]
-fib[5, 0]
-dup_nat[#succ#succ#zero]
-dup[#cons[5, #nil[]]]
-send[fib[3, 5], #next[]]
+let { [x, f] = send[fib[3, 5], #next]  . [%x, send[%f, #next]] }
 send[fib[3, 5], #next]
+let { [x, f] = send[fib[3, 5], #next]  . [%x, send[%f, #next]] }
+let { [x, f] = send[fib[3, 5], #next]  . [%x, let { [x, f] = send[%f, #next] . [%x, %f] }] }
+let { [x, f] = send[fib[3, 5], #next]  . [%x, send[%f, #next]] }
+let { [x, f] = send[fib[3, 5], #next]  . [%x, let { [x, f] = send[%f, #next] . [%x, %f] }] }
+send[fib[3, 5], #next]
+let { [x, f] = send[fib[3, 5], #next]  . [%x, let { [x, f] = send[%f, #next] . [%x, %f] }] }
+let { [x, f] = send[fib[3, 5], #next]  .[%x, let { [x, f] = send[%f, #next] . [%x, %f] }] }
+let { [x, f] = send[fib[3, 5], #next]  . [%x, let { [x, f] = send[%f, #next] . [%x, send[%f, #next]] }] }
 observe-stream[fib[0, 1], 0]
-observe-stream[fib[0, 1], 10]
-let { [x, y] = [20, 30] . [%y, %x] }
-let { [[[x]], [y, z]] = [[[20]], [30, 40]] . [%y, %x, %z] }
-match [20, [30, 40]] { [x, [y, z]] . [%y, %x, %z] }
-+[1, 2]
-match [20, [30, 40]] { [x, [y, z]] . [%y, %x, %z] }
-match #a #a1 [3, 4] { #a { #a0 . 123 | #a1 [x, y]. [%y, %x] }   }
-pm[#foo 123]
-fn pm[x] { match %x { #foo x . %x } }
-pm[#foo 123]
-match #foo #bar [1,[50, 2]] { #foo #bar [x, [y, z]] . [%y, %x, %z] }
-match #a #a1 [3, 4] { #a { #a0 . 123 | #a1 [x, y]. [%y, %x] }   }
-map-server[incrementing-server[], range-iter[5, 0]]
-send[incrementing-server[], #inc 5 ]
-[+[5, 6], 2]
+observe-stream[fib[0, 1], 1]
+observe-stream[fib[0, 1], 0]
+observe-stream[fib[0, 1], 11]
+match 123 { x . %x }
+match #a { #a . 123 }
+match 123 { x . %x }
+match #a { #a . 123 }
+cut { x = 123 . %x }
+cut { x = 123, y = 512 . [%y, %x] }
+let {,,, . 123 }
+let { x = 123 . %x }
+cut { [x, y] = [20, 30] . [%y, %x] }
+send[fib[3, 5], #next]
+let { [x, f] = send[fib[3, 5], #next]  . [%x, let { [x, f] = send[%f, #next] . [%x, send[%f, #next]] }] }
+observe-stream[fib[0, 1], 0]
+observe-stream[fib[0, 1], 11]
+dup[#cons[5, #nil[]]]
+dup_nat[#succ#succ#zero]
+dup_nat[#succ #succ #zero]
+dup_nat[#succ #zero]
+dup_nat[#zero]
+dup_nat[#succ #zero]
+dup_nat[#zero]
+let { [n0, n1] = [#zero, #zero] . [%n0, %n1]} 
+let { [n0, n1] = [#zero, #zero] . [#succ %n0, #succ %n1]} 
+let { [n0, n1] = dup_nat[#zero] . [#succ %n0, #succ %n1] }
+match #zero { | #zero . [#zero, #zero] | #succ n . let { [n0, n1] = dup_nat[%n] . [#succ %n0, #succ %n1] } }
+match #succ #zero { | #zero . [#zero, #zero] | #succ n . let { [n0, n1] = dup_nat[%n] . [#succ %n0, #succ %n1] } }
+match #succ #zero { | #zero . [#zero, #zero] | #succ n . cut { [n0, n1] = dup_nat[%n] . [#succ %n0, #succ %n1] } }
+match #succ #zero { | #zero . [#zero, #zero] | #succ n . let { [n0, n1] = dup_nat[%n] . [#succ %n0, #succ %n1] } }
+match #succ #zero { | #zero . [#zero, #zero] | #succ n . let { [n0, n1] = dup_nat[%n] . 123 } }
+match #succ #zero { #succ n . let { [n0, n1] = dup_nat[%n] . 123 } }
+match #succ #zero { #succ n . %n }
+match #zero { #succ n . %n }
+match #succ 123 { #succ n . %n }
+match #succ #zero { #succ n . %n }
+match #succ #zero [] { #succ n . %n }
+match #succ #zero [] { #succ [n] . %n }
+match #succ #zero { #succ [n] . %n }
+match #succ #zero [] { #succ [n] . %n }
+match #succ #zero { #succ n . %n }
+match #zero { #zero n . %n }
+match #zero { #zero . %n }
+match #zero { #zero . 123 }
+match #succ #zero [] { #succ [n] . %n }
+match #succ [#zero []] { #succ [n] . %n }
+match #succ [123] { #succ [n] . %n }
+#succ [123]
+match #succ [123] { #succ [n] . %n }
+let { n = 123 . %n }
+match #succ [123] { #succ [n] . %n }
+match [123] { [n] . %n }
+match 123 { n . %n }
+match [123] { [n] . %n }
+match [123] { n . %n }
+match [123] { [n] . %n }
+match #zero { #zero . 123 }
+match #succ #zero { #succ #zero . 123 }
+match #succ #zero { #succ n . 123 }
 fn mul_5[x] { *[%x, 5] }
 mul_5[6]
 fn pm[x] { match %x { #foo x . %x } }
 match #foo #bar [1,[50, 2]] { #foo #bar [x, [y, z]] . [%y, %x, %z] }
 match #a #a1 [3, 4] { #a { #a0 . 123 | #a1 [x, y]. [%y, %x] }   }
 pm[#foo 123]
-send[example_tuple_0[], #fst[]]
-send[example_tuple_0[], #fst]
+send example_tuple_0[] #fst
 example_tuple_0[]
 #fst[]
-let { x = 123 . %x }
-let { x = 123 . move x }
-let { x = 123 . [clone x, %x] }
-let { x = 123 . [clone x, move x] }
-let { x = 123 . [%x, clone x] }
-let { x = 123 . [] }
-let { x = 123 . drop x . [] }
-example_tuple_1[]
-range-iter[5, 0]
-range-iter-simpler[5, 0]
-fn f[x] { %x }
-range-iter-simpler[5, 0]
-fn f[x] { %x }
-obj {. { #foo[] . 123 } }
-send[send[send[nats[3], #tl], #tl], #tl]
-send[incrementing-server[], #inc 5 ]
-==[5, 0]
-incrementing-server[]
-range-iter[5, 0]
-range-iter-simpler[5, 0]
-map-server[incrementing-server[], range-iter[5, 0]]
-fib[5, 0]
-let { x = 123 . %x }
-let { x = 123, y = 512 . %y }
-let { x = 123, y = 512 . [%y, %x] }
-let { result = [20, 30] . %result }
-send[fib[3, 5], #next]
-observe-stream[fib[0, 1], 0]
-observe-stream[fib[0, 1], 10]
-send[fib[3, 5], #next]
-observe-stream[fib[0, 1], 0]
-observe-stream[fib[0, 1], 10]
-let { x = 123, y = 512 . [%x, %y] }
-let { x = 123, y = 512 . [let { a = %x . %a }, %y] }
-let { x = 123, y = 512 . [let { a = %x . %a }, let { b = %y . %y }] }
-let { x = 123, y = 512 . [let { a = %x . %a }, let { b = %y . %b }] }
 cut { x = 123 . %x }
 cut { x = 123 . move x }
 cut { x = 123 . [clone x, %x] }
@@ -88,14 +85,17 @@ cut { x = 123 . [clone x, move x] }
 cut { x = 123 . [%x, clone x] }
 cut { x = 123 . [] }
 cut { x = 123 . drop x . [] }
-cut { x = 123 . %x }
-cut { x = 123, y = 512 . [%y, %x] }
-cut { x = 123, y = 512 . [cut { a = %x . %a }, cut { b = %y . %b }] }
-cut { x = 123 . %x }
-let { x = 123 . %x }
-cut { x = 123 . %x }
-cut { x = 123, y = 512 . [%y, %x] }
-cut { x = 123, y = 512 . [cut { a = %x . %a }, cut { b = %y . %b }] }
-let { x = 123 . %x }
-let { x = 123, y = 512 . [%y, %x] }
-let { x = 123, y = 512 . [cut { a = %x . %a }, cut { b = %y . %b }] }
+example_tuple_1[]
+range-iter[5, 0]
+range-iter-simpler[5, 0]
+fn f[x] { %x }
+obj { #foo[] . 123 }
+send nats[3]  #tl
+send nats[3]  #tl #tl #tl
+nats[0]
+send nats[0] #tl
+send nats[0] #tl #tl
+match #succ #zero { #succ n . %n }
+match #succ #zero { #succ n . #succ %n }
+match match #succ #zero { #succ n . #succ %n } { #succ n . #succ %n }
+match #succ #zero { #succ n . %n }

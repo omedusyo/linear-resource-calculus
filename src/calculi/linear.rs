@@ -7,8 +7,8 @@ use crate::syntax::{
 use crate::identifier::{VariableName, FunctionName, Tag};
 use crate::IResult0;
 use std::collections::HashMap;
-use crate::pattern_branch;
-use crate::pattern_branch::{PatternMatchableValue, ValueShape, ValueShape0};
+use crate::matcher;
+use crate::matcher::{PatternMatchableValue, ValueShape, ValueShape0, CodeShape, OrCode, PatternCode, Pattern};
 
 // ===parser===
 fn identifier_to_operation_code(str: &str) -> Option<OperationCode> {
@@ -122,164 +122,131 @@ pub fn parse_function_definition(input: TokenStream) -> IResult0<FunctionDefinit
     Ok((input, FunctionDefinition { name: FunctionName::new(function_name_str), parameters, body }))
 }
 
-// =====Parsing pattern matching========
+// =====Parsing Patterns========
 
 // x, y, z
 // x, [y0, y1], [[]]
 // x, [[y0, y1], z], w
-fn parse_pattern_sequence(input: TokenStream) -> IResult0<Vec<pattern_branch::Pattern>> {
+fn parse_pattern_sequence(input: TokenStream) -> IResult0<Vec<Pattern>> {
     comma_vector(parse_pattern)(input)
 }
 
 // [x, y, z]
 // [x, [y0, y1], [[]]]
 // [x, [[y0, y1], z], w]
-fn parse_tuple_pattern(input: TokenStream) -> IResult0<Vec<pattern_branch::Pattern>> {
+fn parse_tuple_pattern(input: TokenStream) -> IResult0<Vec<Pattern>> {
     brackets(parse_pattern_sequence)(input)
 }
 
 // var
 // [x,y,z]
 // [x,[y0, y1],z]
-fn parse_pattern(input: TokenStream) -> IResult0<pattern_branch::Pattern> {
+fn parse_pattern(input: TokenStream) -> IResult0<Pattern> {
     use Token::*;
     let (input, token0) = anytoken(input)?;
     match token0 {
-        Identifier(var_name) => Ok((input, pattern_branch::Pattern::match_all(VariableName::new(var_name)))),
+        Identifier(var_name) => Ok((input, Pattern::match_all(VariableName::new(var_name)))),
         OpenBracket => {
             let (input, patterns) = parse_pattern_sequence(input)?;
             let (input, _) = token(TokenType::CloseBracket)(input)?;
-            Ok((input, pattern_branch::Pattern::tuple(patterns)))
+            Ok((input, Pattern::tuple(patterns)))
         },
         _ => Err(nom::Err::Error(nom::error::Error { input: input.input, code: nom::error::ErrorKind::Alt })),
     }
 }
 
-//   { #tag0 . body }
-//   { #tag0 #tag1 . body }
-//   { #tag0 #tag1 #tag2 . body }
-//   { #tag0 { #tag00 . body 
-//           | #tag01 . body
-//           }
-//   }
-//   { #tag [x, y, z] . body }
-//
-//   { [x, y, z] . body }
-//   { x . body }
-//
-//   { #tag0 . bod0
-//   | #tag1 x . body1
-//   | #tag2 . body2
-//   }
-//
-//   {
-//   | #tag0 . bod0
-//   | #tag1 x . body1
-//   | #tag2 . body2
-//   }
-//   TODO: This should only be allowed to be an OrBranch!
-fn parse_match_branch(input: TokenStream) -> IResult0<pattern_branch::Branch<Expression>> {
-    let (input, _) = token(TokenType::OpenCurly)(input)?;
+// =====Parsing Code========
 
-    // either match_all, or tagged, or tuple
-    use Token::*;
-    let (_, token0) = anytoken(input)?;
-    let (input, branch) = match token0 {
-        TagSymbol | OrSeparator => { // do not commit
-            let (input, or_branch) = parse_or_branch(input)?;
-            (input, pattern_branch::Branch::or(or_branch))
-        },
-        OpenBracket | Identifier(_)  => { // do not commit
-            // INEFFICIENT: We're gonna have to reparse identifier, but whatever.
-            parse_pattern_branch(input)?
-        },
-        _ => return Err(nom::Err::Error(nom::error::Error { input: input.input, code: nom::error::ErrorKind::Alt })),
-    };
-
-    let (input, _) = token(TokenType::CloseCurly)(input)?;
-    Ok((input, branch))
+// { inner-code }
+fn parse_code(input: TokenStream) -> IResult0<CodeShape<Expression>> {
+    let (input, code) = curly_braces(parse_inner_code)(input)?;
+    Ok((input, code))
 }
 
-// TODO: Use different syntax for messages...
-fn parse_object_branch(input: TokenStream) -> IResult0<pattern_branch::Branch<Expression>> {
-    let (input, _) = token(TokenType::OpenCurly)(input)?;
-
-    // either match_all, or tagged, or tuple
+// =primitive code=
+// . body
+//
+// =or-code=
+// #tag0 . body
+// #tag0 #tag1 . body
+// #tag0 #tag1 #tag2 . body
+// #tag0 { #tag00 . body 
+//       | #tag01 . body
+//       }
+// #tag [x, y, z] . body
+// #tag0 . bod0 | #tag1 x . body1 | #tag2 . body2
+//
+// =pattern-code=
+// [x, y, z] . body
+// x . body
+fn parse_inner_code(input: TokenStream) -> IResult0<CodeShape<Expression>> {
     use Token::*;
-    let (_, token0) = anytoken(input)?;
-    let (input, branch) = match token0 {
-        TagSymbol | OrSeparator => { // do not commit
-            let (input, or_branch) = parse_or_branch(input)?;
-            (input, pattern_branch::Branch::or(or_branch))
+    let (input_if_commited, token0) = anytoken(input)?;
+    match token0 {
+        TagSymbol | OrSeparator  => { // do not commit
+            let (input, or_code) = parse_or_code(input)?;
+            Ok((input, CodeShape::or(or_code)))
         },
-        OpenBracket | Identifier(_)  => { // do not commit
-            // INEFFICIENT: We're gonna have to reparse identifier, but whatever.
-            parse_pattern_branch(input)?
+        OpenBracket | Identifier(_) => { // do not commit
+            let (input, and_branch) = parse_pattern_code(input)?;
+            Ok((input, CodeShape::seq(and_branch)))
+        },
+        BindingSeparator => { // commit
+            let (input, body) = parse_expression(input_if_commited)?;
+            Ok((input, CodeShape::code(body)))
         },
         _ => return Err(nom::Err::Error(nom::error::Error { input: input.input, code: nom::error::ErrorKind::Alt })),
-    };
-
-    let (input, _) = token(TokenType::CloseCurly)(input)?;
-    Ok((input, branch))
+    }
 }
 
-//   | #tag0 . branch | #tag1 x . branch | #tag2 [x, y]. branch |  #tag3 { #foo . branch }
-fn parse_or_branch(input: TokenStream) -> IResult0<pattern_branch::OrBranch<Expression>> {
-    let (input, branches) = or_vector(parse_tag_branch)(input)?;
-    let or_branch = pattern_branch::OrBranch::new(branches);
+// tagged_code | tagged_code | tagged_code
+fn parse_or_code(input: TokenStream) -> IResult0<OrCode<Expression>> {
+    let (input, tagged_codes) = or_vector(parse_tag_code)(input)?;
+    let or_branch = OrCode::new(tagged_codes);
     Ok((input, or_branch))
 }
 
-// x, [y0, [y10, y11], [], y2], z . body
-fn parse_seq_branch(input: TokenStream) -> IResult0<pattern_branch::SeqBranch<Expression>> {
-    let (input, patterns) = parse_pattern_sequence(input)?;
-    let (input, _) = token(TokenType::BindingSeparator)(input)?;
-    let (input, body) = parse_expression(input)?;
-    let seq_branch = pattern_branch::SeqBranch::new(patterns, body);
-    Ok((input, seq_branch))
-}
-
-//   #tag0 . body
-//   #tag0 x . body
-//   #tag0 #tag1 . body
-//   #tag0 #tag1 #tag2 . body
-//   #tag0 { #tag00 . body 
-//         | #tag01 . body
-//         }
-//   #tag0 [x, y, z] . body
-fn parse_tag_branch(input: TokenStream) -> IResult0<(Tag, pattern_branch::Branch<Expression>)> {
+// #tag0 . body
+// #tag0 x . body
+// #tag0 #tag1 . body
+// #tag0 { #tag00 . body 
+//       | #tag01 . body
+//       }
+// #tag [x, y, z] . body
+fn parse_tag_code(input: TokenStream) -> IResult0<(Tag, CodeShape<Expression>)> {
     use Token::*;
+
     let (input, tag) = parse_tag_as_constructor(input)?;
     let (input_if_commited, token0) = anytoken(input)?;
     match token0 {
         BindingSeparator => { // commit
-            // #tag0 . body
+            // #tag . body
             let (input, body) = parse_expression(input_if_commited)?;
-            Ok((input, (tag, pattern_branch::Branch::body(body))))
+            Ok((input, (tag, CodeShape::code(body))))
         },
         Identifier(_) => { // do not commit
             // #tag x . body
-            let (input, branch) = parse_pattern_branch(input)?;
-            Ok((input, (tag, branch)))
+            let (input, pattern_code) = parse_pattern_code(input)?;
+            Ok((input, (tag, CodeShape::seq(pattern_code))))
         }
         TagSymbol => { // do not commit
-            // #tag0 #tag1 . body
-            let (input, tagged_branch) = parse_tag_branch(input)?;
-            let or_branch = pattern_branch::OrBranch::new(vec![tagged_branch]);
-            let branch = pattern_branch::Branch::or(or_branch);
-            Ok((input, (tag, branch)))
+            // #tag #tag1 . body
+            let (input, tagged_branch) = parse_tag_code(input)?;
+            let or_code = OrCode::new(vec![tagged_branch]);
+            Ok((input, (tag, CodeShape::or(or_code))))
         },
         OpenBracket => { // do not commit
             // #tag [x, y, z] . body
-            let (input, branch) = parse_pattern_branch(input)?;
-            Ok((input, (tag, branch)))
+            let (input, pattern_code) = parse_pattern_code(input)?;
+            Ok((input, (tag, CodeShape::seq(pattern_code))))
         },
         OpenCurly => { // commit
-            // #tag0 { #tag00 . body 
-            //       | #tag01 . body
-            //       }
-            let (input, or_branch) = parse_or_branch(input_if_commited)?;
-            let branch = pattern_branch::Branch::or(or_branch);
+            // #tag { #tag00 . body 
+            //      | #tag01 . body
+            //      }
+            let (input, or_code) = parse_or_code(input_if_commited)?;
+            let branch = CodeShape::or(or_code);
+
             let (input, _) = token(TokenType::CloseCurly)(input)?;
             Ok((input, (tag, branch)))
         },
@@ -290,11 +257,11 @@ fn parse_tag_branch(input: TokenStream) -> IResult0<(Tag, pattern_branch::Branch
 // x . body
 // [p, q, r] . body
 // [[p0, p1], q, r] . body
-fn parse_pattern_branch(input: TokenStream) -> IResult0<pattern_branch::Branch<Expression>> {
+fn parse_pattern_code(input: TokenStream) -> IResult0<PatternCode<Expression>> {
     let (input, pattern) = parse_pattern(input)?;
     let (input, _) = token(TokenType::BindingSeparator)(input)?;
     let (input, body) = parse_expression(input)?;
-    Ok((input, pattern_branch::Branch::pattern(pattern, body)))
+    Ok((input, PatternCode::new(pattern, body)))
 }
 
 // ===Parsing bindings===
@@ -302,7 +269,7 @@ fn parse_pattern_branch(input: TokenStream) -> IResult0<pattern_branch::Branch<E
 // [x0, x1] = e0
 // [x, [y0, y1], []] = e0
 // [] = e0
-pub fn parse_binding(input: TokenStream) -> IResult0<(pattern_branch::Pattern, Expression)> {
+pub fn parse_binding(input: TokenStream) -> IResult0<(Pattern, Expression)> {
     let (input, pattern) = parse_pattern(input)?;
     let (input, _) = token(TokenType::Eq)(input)?;
     let (input, arg) = parse_expression(input)?;
@@ -323,8 +290,9 @@ pub fn parse_bindings(input: TokenStream) -> IResult0<Bindings> {
 
 // ===Parsing expressions===
 pub fn parse_expression(input: TokenStream) -> IResult0<Expression> {
-    let (input, token0) = anytoken(input)?;
     use Token::*;
+
+    let (input, token0) = anytoken(input)?;
     match token0 {
         Int(x) => Ok((input, Expression::int(x))),
         VarMoveSymbol => {
@@ -394,19 +362,26 @@ pub fn parse_expression(input: TokenStream) -> IResult0<Expression> {
                     Ok((input, Expression::cut(bindings, body)))
                 },
                 "match" => {
+                    // TODO: The next token could reasonable be with empty (unit) argument i.e.
+                    //         match { . body }
+                    //       But this would require a conversion of Expression<Code> into Expression.
+                    //       And it seems pretty useless... we would have it only for consistency
+                    //       sake...
                     let (input, arg) = parse_expression(input)?;
-                    let (input, branches) = parse_match_branch(input)?;
-                    Ok((input, Expression::match_(arg, branches)))
+                    let (input, code) = parse_code(input)?;
+                    Ok((input, Expression::match_(arg, code)))
                 },
                 "obj" => {
                     // obj { #hd . body0 | #tl . body1 }
-                    let (input, branches) = parse_object_branch(input)?;
-                    Ok((input, Expression::object(branches)))
+                    let (input, code) = parse_code(input)?;
+                    Ok((input, Expression::object(code)))
                 },
                 "send" => {
+                    // Same discussion applies as in the "match" case.
                     // send[%obj, %msg]
-                    let (input, (e0, e1)) = parse_arg_list2(input)?;
-                    Ok((input, Expression::send(e0, e1)))
+                    let (input, obj) = parse_expression(input)?;
+                    let (input, msg) = parse_expression(input)?;
+                    Ok((input, Expression::send(obj, msg)))
                 },
                 s => match identifier_to_operation_code(s) {
                     Some(op_code) => 
@@ -432,6 +407,26 @@ pub fn parse_expression(input: TokenStream) -> IResult0<Expression> {
         _ => Err(nom::Err::Error(nom::error::Error { input: input.input, code: nom::error::ErrorKind::Alt })),
     }
 }
+
+pub fn parse_match_expression(input: TokenStream) -> IResult0<Expression> {
+                    // TODO: take a lookahead if this happens to be {
+                    // let (input, arg) = parse_expression(input)?;
+                    // let (input, branches) = parse_match_expression(input)?;
+                    // Ok((input, Expression::match_(arg, branches)))
+    todo!()
+
+}
+pub fn parse_obj_expression(input: TokenStream) -> IResult0<Expression> {
+    // obj { #hd . body0 | #tl . body1 }
+                    // TODO: take a lookahead if this happens to be {
+                    // let (input, arg) = parse_expression(input)?;
+                    // let (input, branches) = parse_match_expression(input)?;
+                    // Ok((input, Expression::object(branches)))
+    todo!()
+
+}
+
+
 
 // ===Program===
 #[derive(Debug)]
@@ -479,8 +474,10 @@ impl Program {
 
 // ===Expressions===
 #[derive(Debug, Clone)]
+// TODO: Replace Box with Rc
 pub struct Expression(pub Box<Expression0>);
 
+// TODO: Get rid of the Clone
 // Clone is here only because we have function definitions.
 #[derive(Debug, Clone)]
 pub enum Expression0 {
@@ -491,16 +488,26 @@ pub enum Expression0 {
     Tag_(Tag),
     Tagged(Tag, Expression),
     Tuple(Vec<Expression>),
-    Match { arg: Expression, branch: pattern_branch::Branch<Expression> },
+    Match { arg: Expression, code: CodeShape<Expression> },
     VarMove(VariableName),
     VarClone(VariableName),
     VarDrop(VariableName, Expression),
     Cut { bindings: Bindings, body: Expression },
     // You can always replace LetMove with Cut, but it can be incredebly tedious.
     LetMove { bindings: Bindings, body: Expression },
-    Object { branch: pattern_branch::Branch<Expression> },
+    Object { code: CodeShape<Expression> },
     Send(Expression, Expression),
 }
+
+#[derive(Debug, Clone)]
+pub struct Msg(Box<Msg0>);
+#[derive(Debug, Clone)]
+pub enum Msg0 {
+    Tag_(Tag),
+    Tagged(Tag, Msg),
+    Tuple(Vec<Expression>),
+}
+
 #[derive(Debug, PartialEq, Clone)]
 pub enum OperationCode {
     Add,
@@ -517,7 +524,22 @@ pub struct Bindings(Box<Bindings0>);
 #[derive(Debug, Clone)]
 pub enum Bindings0 {
     Empty,
-    Push { pattern: pattern_branch::Pattern, expr: Expression, parent: Bindings },
+    Push { pattern: Pattern, expr: Expression, parent: Bindings },
+}
+
+impl Bindings {
+    fn unzip(&self) -> (Vec<Expression>, Vec<Pattern>) {
+        let mut bindings = self;
+        use Bindings0::*;
+        let mut expressions = vec![];
+        let mut patterns = vec![];
+        while let Push { pattern, expr, parent } = &(*bindings.0) {
+            expressions.push(expr.clone());
+            patterns.push(pattern.clone());
+            bindings = parent;
+        }
+        (expressions, patterns)
+    }
 }
 
 impl Expression {
@@ -528,13 +550,13 @@ impl Expression {
     fn tag(tag: Tag) -> Self { Self(Box::new(Expression0::Tag_(tag))) }
     fn tagged(tag: Tag, e: Expression) -> Self { Self(Box::new(Expression0::Tagged(tag, e))) }
     fn tuple(args: Vec<Expression>) -> Self { Self(Box::new(Expression0::Tuple(args))) }
-    fn match_(arg: Self, branch: pattern_branch::Branch<Expression>) -> Self { Self(Box::new(Expression0::Match { arg, branch })) }
+    fn match_(arg: Self, code: CodeShape<Expression>) -> Self { Self(Box::new(Expression0::Match { arg, code })) }
     fn var_move(var: VariableName) -> Self { Self(Box::new(Expression0::VarMove(var))) }
     fn var_clone(var: VariableName) -> Self { Self(Box::new(Expression0::VarClone(var))) }
     fn var_drop(var: VariableName, expr: Expression) -> Self { Self(Box::new(Expression0::VarDrop(var, expr))) }
     fn let_move(bindings: Bindings, body: Self) -> Self { Self(Box::new(Expression0::LetMove { bindings, body })) }
     fn cut(bindings: Bindings, body: Self) -> Self { Self(Box::new(Expression0::Cut { bindings, body })) }
-    fn object(branch: pattern_branch::Branch<Expression>) -> Self { Self(Box::new(Expression0::Object { branch })) }
+    fn object(code: CodeShape<Expression>) -> Self { Self(Box::new(Expression0::Object { code })) }
     fn send(obj: Self, msg: Self) -> Self { Self(Box::new(Expression0::Send(obj, msg))) }
 }
 
@@ -545,7 +567,7 @@ pub enum Value {
     Tag(Tag),
     Tagged(Tag, Box<Value>),
     Tuple(Vec<Value>), // Would be cool if we could use Box<[Value]>, since we don't need to resize
-    ClosureObject { captured_env: Env, branch: pattern_branch::Branch<Expression> },
+    Closure { captured_env: Env, code: CodeShape<Expression> },
 }
 
 impl Value {
@@ -560,7 +582,7 @@ impl Value {
                     let _ = val.discard();
                 }
             },
-            ClosureObject { .. } => todo!(), // this should crash
+            Closure { .. } => todo!(), // this should crash
         }
     }
 
@@ -583,7 +605,7 @@ impl Value {
                 }
                 (Tuple(values0), Tuple(values1))
             },
-            ClosureObject { .. } => todo!(), // this should crash
+            Closure { .. } => todo!(), // this should crash
         }
     }
 }
@@ -596,7 +618,7 @@ impl PatternMatchableValue for Value {
             Tuple(values) => ValueShape::tuple(values.into_iter().map(|val| val.to_shape()).collect()),
             Int(x) => ValueShape::value(Int(x)),
             Tag(tag) => ValueShape::tag(tag),
-            ClosureObject { captured_env, branch: branches } => ValueShape::value(ClosureObject { captured_env, branch: branches }),
+            Closure { captured_env, code: branches } => ValueShape::value(Closure { captured_env, code: branches }),
         }
     }
     fn from_shape(value_shape: ValueShape<Self>) -> Self  {
@@ -628,8 +650,14 @@ impl fmt::Display for Value {
                 }
                 write!(f, "]")
             },
-            ClosureObject { captured_env, ..  } => write!(f, "obj {{ {}@code }}", captured_env),
+            Closure { captured_env, ..  } => write!(f, "obj {{ {}@code }}", captured_env),
         }
+    }
+}
+
+impl fmt::Display for Expression {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Exp")
     }
 }
 
@@ -716,7 +744,7 @@ impl Env {
         self
     }
 
-    fn extend_from_pattern_branch_env(self, env_pb: pattern_branch::Env<Value>) -> Self {
+    fn extend_from_pattern_branch_env(self, env_pb: matcher::Env<Value>) -> Self {
         self.extend_many(env_pb.bindings.into_iter())
     }
 
@@ -746,7 +774,7 @@ pub enum Error {
     FunctionLookupFailure(FunctionName),
     FunctionCallArityMismatch { fn_name: FunctionName, expected: usize, received: usize },
     VariableLookupFailure(VariableName),
-    PatternMatch(pattern_branch::Error<Value>),
+    PatternMatch(matcher::Error<Value>),
     UnconsumedResources(Env),
     AttemptToSendMessageToNonObject(Value),
 }
@@ -857,9 +885,9 @@ fn eval(program: &Program, env: Env, e: &Expression) -> Result<(Env, Value), Err
             let env = env.drop_(var_name)?;
             eval(program, env, expr)
         },
-        Match { arg, branch } => {
+        Match { arg, code } => {
             let (env, arg_value) = eval(program, env, arg)?;
-            match pattern_branch::match_(arg_value.to_shape(), branch) {
+            match code.match_(Some(arg_value.to_shape())) {
                 Ok((env_pb, body)) => {
                     let env = env.extend_from_pattern_branch_env(env_pb);
                     eval(program, env, body)
@@ -885,16 +913,16 @@ fn eval(program: &Program, env: Env, e: &Expression) -> Result<(Env, Value), Err
         // I wonder if this is only a problem in dynamic language. When we have types, the parts of
         // the environment that are captured can be known statically, right? So we wouldn't have to
         // do the explicit `let`? They'd be infered?
-        Object { branch } => {
+        Object { code: branch } => {
             // Note how this takes ownership of the whole environment and returns nothing!
-            Ok((Env::new(), Value::ClosureObject { captured_env: env, branch: branch.clone() }))
+            Ok((Env::new(), Value::Closure { captured_env: env, code: branch.clone() }))
         },
         Send(e0, e1) => {
             let (env, obj) = eval(program, env, e0)?;
             match obj {
-                Value::ClosureObject { captured_env, branch } => {
+                Value::Closure { captured_env, code } => {
                     let (env, msg) = eval(program, env, e1)?;
-                    match pattern_branch::match_(msg.to_shape(), &branch) {
+                    match code.match_(Some(msg.to_shape())) {
                         Ok((env_pb, body)) => {
                             let captured_env = captured_env.extend_from_pattern_branch_env(env_pb);
                             Ok((env, eval_consumming(program, captured_env, body)?))
@@ -914,31 +942,22 @@ fn eval(program: &Program, env: Env, e: &Expression) -> Result<(Env, Value), Err
 // Note how in a presence of bindings, this actually has type
 //    Env -> (Env, Env)
 // which looks like a tyape for duplication, but actually this is the type of split too...
-fn eval_bindings(program: &Program, env: Env, bindings: &Bindings) -> Result<(Env, Env), Error> {
-    use Bindings0::*;
-    match &(*bindings.0) {
-        Empty => Ok((env, Env::new())),
-        Push { pattern, expr, parent } => {
-            let (env, bindings_env_parent) = eval_bindings(program, env, parent)?;
-            let (env, val) = eval(program, env, expr)?;
-            // match pattern_branch::match_(msg.to_shape(), &branch) {
-            //     Ok((env_pb, body)) => {
-            //         let captured_env = captured_env.extend_from_pattern_branch_env(env_pb);
-            //         Ok((env, eval_consumming(program, captured_env, body)?))
-            //     },
-            //     Err(err) => Err(Error::PatternMatch(err))
-            // }
+fn eval_bindings(program: &Program, mut env: Env, bindings: &Bindings) -> Result<(Env, Env), Error> {
+    let (expressions, patterns) = bindings.unzip();
 
+    let mut value_shapes = Vec::with_capacity(expressions.len());
+    for expression in expressions {
+        let (env0, value) = eval(program, env, &expression)?;
+        env = env0;
+        value_shapes.push(value.to_shape());
+    }
 
-
-
-
-            let bindings_env_parent = todo!();
-            // TODO: Old
-            // let bindings_env_parent = bindings_env_parent.extend(pattern.clone(), val);
-
-            // Ok((env, bindings_env_parent))
+    match matcher::match_seq(&patterns[..], value_shapes) {
+        Ok(env_pb) => {
+            let captured_env = Env::new().extend_from_pattern_branch_env(env_pb);
+            Ok((env, captured_env))
         },
+        Err(err) => Err(Error::PatternMatch(err))
     }
 }
 

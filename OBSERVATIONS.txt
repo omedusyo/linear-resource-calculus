@@ -78,3 +78,10 @@
   To get Cartesian programming, you have the cartesian environments which are made to be trivially clonable.
   To get Linear programming, you have the linear environments, which seem to be captured by the monoid of multisubsets of values.
   To get "Ordered" programming (not sure what name would be appropriate for this yet), you take environemnts made from List[Value].
+
+* The meaning of $, % could actually be: give-me access to the current environment.
+  Let/Cut is just another basic operator over the current environment.
+* Records (tuples with labels for their fields) are reified environments! First-Class environments! reification==representation via universal properties?
+  It could actually be pretty amazing to have an operator that just takes the current environment and puts it into a variable.
+  And cut gives a pretty sweet management of that... like record update syntax, but not ad-hoc.
+
