@@ -38,29 +38,29 @@ fn reverse-loop[xs, state] { match %xs {
 }}
 
 fn nats[n] { obj {
-| #hd . %n
-| #tl . nats[+[%n, 1]]
+| @hd . %n
+| @tl . nats[+[%n, 1]]
 }}
 
 fn example_tuple_0[] {
-  obj { #fst . 123 | #snd . 512 }
+  obj { @fst . 123 | @snd . 512 }
 }
 
 fn example_tuple_1[] {
-  cut { n = 123 . obj { #fst . %n | #snd . +[%n, 100] }}
+  cut { n = 123 . obj { @fst . %n | @snd . +[%n, 100] }}
 }
 
 fn map-server[f, xs] { match %xs {
-| #nil . let { [] = send %f #stop  . #nil }
+| #nil . let { [] = send %f @stop  . #nil }
 | #cons[x, xs] .
-  let { [y, f] = send %f #inc %x .
+  let { [y, f] = send %f @inc %x .
     #cons[%y, map-server[%f, %xs]]
   }
 }}
 
 fn incrementing-server[] { obj {
-| #stop . []
-| #inc x . [+[%x, 1], incrementing-server[]]
+| @stop . []
+| @inc x . [+[%x, 1], incrementing-server[]]
 }}
 
 fn range-iter[n, i] { 
@@ -89,8 +89,7 @@ fn range-iter-simpler[n, i] {
   }
 }
 
-fn fib[x, y] { obj {
-   #next .
+fn fib[x, y] { obj { @next .
    [clone x,  fib[clone y, +[%x, %y]]]
 }}
 
@@ -102,7 +101,7 @@ fn observe-stream-loop[stream, i, n] { match ==[clone i, clone n] {
     drop n .
     #cont[%stream]
 | #F .
-    let { [x, stream] = send %stream #next .
+    let { [x, stream] = send %stream @next .
       #cons[%x, observe-stream-loop[%stream, +[%i, 1], %n]]
     }
 }}

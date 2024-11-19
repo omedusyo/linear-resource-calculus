@@ -196,7 +196,7 @@ pm[#foo 123]
 
 :r
 
-send example_tuple_0[] #fst
+send example_tuple_0[] @fst
 
 example_tuple_0[]
 
@@ -232,15 +232,16 @@ range-iter-simpler[5, 0]
 
 obj { #foo[] . 123 }
 
-send nats[3]  #tl #tl #tl
+send nats[3]  @tl @tl @tl
 
-send nats[0] #tl #tl
+send nats[0] @tl @tl @hd
 
-send send send nats[3]  #tl #tl #tl
+//{This is ambiguous} send send send nats[3]  @tl @tl @tl
 
-send send send nats[3]  #tl #tl #tl
+// You'd have to introduce brackets `send[obj, msg]` to resolve the ambiguity
+// Same applies for `match e code` vs `match[e, code]`
 
-send[incrementing-server[], #inc 5 ]
+send[incrementing-server[], @inc 5 ]
 
 
 ==[5, 0]

@@ -67,7 +67,6 @@
 * Get your abstract syntax right - and it should be very simple. Then you can build concrete syntax on top of it.
 * For a type theory, if you don't understand how cut/let works, you don't understand your type theory. That's the most fundamental thing.
 
-
 * In Cartesian World you have shallow cloning.
   In Linear World, you don't have deep cloning universally... but that's not the correct analogue of shallow cloning...
   Cartesian                            vs        Linear
@@ -85,3 +84,14 @@
   It could actually be pretty amazing to have an operator that just takes the current environment and puts it into a variable.
   And cut gives a pretty sweet management of that... like record update syntax, but not ad-hoc.
 
+* There is a duality between
+    Dynamic Inductive Values   vs   Static Coinductive Messages               <- ???
+    Static matching code       vs   Dynamic Objects           <- code
+  So I probably shouldn't even have ValueShape...
+         code is matched against ??? (something that subsumes both messages and values)
+  ??? is something that can be fed into code
+  code is something that can consume ???
+* Pattern matching constructors against static code is starting from the root constructor (from roots to leafs).
+  While sending a static message to an object... there's some sort of a reversal (from leafs to roots?).
+  This distinction is present in parsing...
+    Bottom-Up vs Top-Down
