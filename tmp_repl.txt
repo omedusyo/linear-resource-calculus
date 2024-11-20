@@ -196,7 +196,7 @@ send[obj { @next . 123 | @foo . 3112 }, @foo]
 
 obj { @next { @bar . 123 | @q . 13} }
 
-send[obj { @next { @bar . 123 | @q . 13} }, @next @bar]
+send[obj { @next { @bar . 123 | @q . 13} }, @next @q]
 
 send[obj { x y. +[%x, %y] }, 123]
 
@@ -288,16 +288,9 @@ match #succ [123] { #succ [n] . %n }
 
 match [123] { [n] . %n }
 
-[123]     [n]
-
-:r
-
 // I need a builtin dup  that will clone inductive stuff, but will fail on objects
 
 dup[#cons[5, #nil[]]]
-
-
-:r
 
 fib[0, 1]
 

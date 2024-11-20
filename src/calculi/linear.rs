@@ -768,14 +768,16 @@ impl Expression {
 #[derive(Debug)]
 pub enum Value {
     Int(i32),
+
     Tag(Tag),
     Tagged(Tag, Box<Value>),
     Tuple(Vec<Value>), // Would be cool if we could use Box<[Value]>, since we don't need to resize
+
     Closure(Closure),
 }
 
 #[derive(Debug)]
-struct Closure {
+pub struct Closure {
     env: Env,
     code: LazyCode<Expression>,
 }
@@ -833,6 +835,7 @@ impl PatternMatchableValue for Value {
     fn to_shape(self) -> ValueShape<Self>  {
         use Value::*;
         match self {
+            Tag(tag) => ValueShape::tag(tag),
             Tagged(tag, value) => ValueShape::tagged(tag, value.to_shape()),
             Tuple(values) => ValueShape::tuple(values.into_iter().map(|val| val.to_shape()).collect()),
             value => ValueShape::value(value),

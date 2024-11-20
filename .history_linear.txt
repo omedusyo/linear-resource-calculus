@@ -1,48 +1,4 @@
 #V2
-match #succ [123] { #succ [n] . %n }
-#succ [123]
-match #succ [123] { #succ [n] . %n }
-let { n = 123 . %n }
-match #succ [123] { #succ [n] . %n }
-match [123] { [n] . %n }
-match 123 { n . %n }
-match [123] { [n] . %n }
-match [123] { n . %n }
-match [123] { [n] . %n }
-match #zero { #zero . 123 }
-match #succ #zero { #succ #zero . 123 }
-match #succ #zero { #succ n . 123 }
-fn mul_5[x] { *[%x, 5] }
-mul_5[6]
-fn pm[x] { match %x { #foo x . %x } }
-match #foo #bar [1,[50, 2]] { #foo #bar [x, [y, z]] . [%y, %x, %z] }
-match #a #a1 [3, 4] { #a { #a0 . 123 | #a1 [x, y]. [%y, %x] }   }
-pm[#foo 123]
-send example_tuple_0[] #fst
-example_tuple_0[]
-#fst[]
-cut { x = 123 . %x }
-cut { x = 123 . move x }
-cut { x = 123 . [clone x, %x] }
-cut { x = 123 . [clone x, move x] }
-cut { x = 123 . [%x, clone x] }
-cut { x = 123 . [] }
-cut { x = 123 . drop x . [] }
-example_tuple_1[]
-range-iter[5, 0]
-range-iter-simpler[5, 0]
-fn f[x] { %x }
-obj { #foo[] . 123 }
-send nats[3]  #tl
-send nats[3]  #tl #tl #tl
-nats[0]
-send nats[0] #tl
-send nats[0] #tl #tl
-match #succ #zero { #succ n . %n }
-match #succ #zero { #succ n . #succ %n }
-match match #succ #zero { #succ n . #succ %n } { #succ n . #succ %n }
-match #succ #zero { #succ n . %n }
-+[1,2]
 [+[5, 6], 2]
 ul_5[6]
 fn mul_5[x] { *[%x, 5] }
@@ -99,3 +55,47 @@ obj { . 123 }
 send[nats[0], @tl]
 send[send[nats[0], @tl], @tl]
 send[nats[0], @tl @tl]
+send[fib[0, 1], @next]
+let { [x, f] = send[fib[3, 5], @next]  . [%x, send[%f, @next]] }
+let { [x, f] = send[fib[3, 5], @next]  . [%x, let { [x, f] = send[%f, @next] . [%x, send[%f, @next]] }] }
+cut { x = 123 . %x }
+cut { x = 123, y = 512 . [%y, %x] }
+let { x = 123 . %x }
+let { x = 123, y = 512 . [%y, %x] }
+let { x = 123, y = 512 . [cut { a = %x . %a }, cut { b = %y . %b }] }
+cut { [x, y] = [20, 30] . [%y, %x] }
+cut { [[[x]], [y, z]] = [[[20]], [30, 40]] . [%y, %x, %z] }
+match #foo #bar [1,[50, 2]] { #foo #bar [x, [y, z]] . [%y, %x, %z] }
+match #a #a1 [3, 4] { #a { #a0 . 123 | #a1 [x, y]. [%y, %x] }   }
+pm[#foo 123]
+match ==[1,2] { #T . 123 | #F . 512 }
+match #T { #T . 123 | #F . 512 }
+send[obj { @next { @bar . 123 | @q . 13} }, @next @bar]
+send[obj { @next { @bar . 123 | @q . 13} }, @next @q]
+match #T { #T . 123 | #F . 512 }
+match ==[1,2] { #T . 123 | #F . 512 }
+range-iter-simpler[5, 0]
+range-iter[5, 0]
+observe-stream[fib[0, 1], 0]
+observe-stream[fib[0, 1], 11]
+match ==[1,2] { #T . 123 | #F . 512 }
+match #T { #T . 123 | #F . 512 }
+match #succ #zero { #succ n . %n }
+match match #succ #zero { #succ n . #succ %n } { #succ n . #succ %n }
+match #succ #zero { #succ n . %n }
+match #succ [123] { #succ [n] . %n }
+match [123] { [n] . %n }
+dup[#cons[5, #nil[]]]
+send[fib[0, 1], @next]
+let { [x, f] = send[fib[3, 5], @next]  . [%x, send[%f, @next]] }
+let { [x, f] = send[fib[3, 5], @next]  . [%x, let { [x, f] = send[%f, @next] . [%x, send[%f, @next]] }] }
+observe-stream[fib[0, 1], 0]
+observe-stream[fib[0, 1], 11]
+cut { x = 123 . %x }
+cut { x = 123, y = 512 . [%y, %x] }
+let {. 123 }
+let { x = 123 . %x }
+let { x = 123, y = 512 . [%y, %x] }
+let { x = 123, y = 512 . [cut { a = %x . %a }, cut { b = %y . %b }] }
+cut { [x, y] = [20, 30] . [%y, %x] }
+cut { [[[x]], [y, z]] = [[[20]], [30, 40]] . [%y, %x, %z] }
