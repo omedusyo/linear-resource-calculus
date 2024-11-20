@@ -14,22 +14,23 @@ use crate::duality::{
 #[derive(Debug, Clone)]
 pub enum LazyCode<Code> {
     Code(Code),
-    Or(OrCode<Code>),
-    Pattern(PatternCode<Code>),
+    // TODO: Would actually be cool to allow also inductive tags. OrStrict vs OrLazy
+    Or(LazyOrCode<Code>),
+    Pattern(LazyPatternCode<Code>),
 }
 
 impl <Code> LazyCode<Code> {
-    pub fn or(or_code: OrCode<Code>) -> Self {
+    pub fn or(or_code: LazyOrCode<Code>) -> Self {
         Self::Or(or_code)
     }
-    pub fn seq(pattern_code: PatternCode<Code>) -> Self {
+    pub fn seq(pattern_code: LazyPatternCode<Code>) -> Self {
         Self::Pattern(pattern_code)
     }
     pub fn code(code: Code) -> Self {
         Self::Code(code)
     }
     pub fn pattern(pattern: Pattern, code: LazyCode<Code>) -> Self {
-        Self::Pattern(PatternCode::new(pattern, code))
+        Self::Pattern(LazyPatternCode::new(pattern, code))
     }
     fn is_match_all(&self) -> Option<(&VariableName, &LazyCode<Code>)> {
         use LazyCode::*;
@@ -43,25 +44,25 @@ impl <Code> LazyCode<Code> {
 
 
 #[derive(Debug, Clone)]
-pub struct OrCode<Code>(Rc<OrCode0<Code>>);
+pub struct LazyOrCode<Code>(Rc<OrCode0<Code>>);
 #[derive(Debug)]
 struct OrCode0<Code>(Vec<(Tag, LazyCode<Code>)>);
 
-impl <Code> OrCode<Code> {
+impl <Code> LazyOrCode<Code> {
     pub fn new(tagged_codes: Vec<(Tag, LazyCode<Code>)>) -> Self {
         Self(Rc::new(OrCode0(tagged_codes)))
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct PatternCode<Code>(Rc<PatternCode0<Code>>);
+pub struct LazyPatternCode<Code>(Rc<PatternCode0<Code>>);
 #[derive(Debug)]
 struct PatternCode0<Code> {
     pattern: Pattern,
     code: LazyCode<Code>,
 }
 
-impl <Code> PatternCode<Code> {
+impl <Code> LazyPatternCode<Code> {
     pub fn new(pattern: Pattern, code: LazyCode<Code>) -> Self {
         Self(Rc::new(PatternCode0 { pattern, code }))
     }
@@ -85,7 +86,7 @@ impl <Code: fmt::Display> fmt::Display for LazyCode<Code> {
     }
 }
 
-impl <Code: fmt::Display> fmt::Display for OrCode<Code> {
+impl <Code: fmt::Display> fmt::Display for LazyOrCode<Code> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "or{{")?;
         let pairs = &(*self.0.0);
@@ -104,7 +105,7 @@ impl <Code: fmt::Display> fmt::Display for OrCode<Code> {
     }
 }
 
-impl <Code: fmt::Display> fmt::Display for PatternCode<Code> {
+impl <Code: fmt::Display> fmt::Display for LazyPatternCode<Code> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "pattern{{")?;
         let pattern = &(*self.0).pattern;
@@ -118,7 +119,50 @@ impl <Code: fmt::Display> fmt::Display for PatternCode<Code> {
 
 // ===Sender===
 // ===Partially Consumming Code===
-impl <Code> OrCode<Code> {
+
+impl <Code> LazyCode<Code> {
+    pub fn send_tag<Value: PatternMatchableValue + std::fmt::Debug>(
+        &self,
+        tag: Tag
+    ) -> Result<(Env<Value>, &LazyCode<Code>), Error<Value>> {
+        self.send_tag_loop(Env::new(), tag)
+    }
+
+    fn send_tag_loop<Value: PatternMatchableValue + std::fmt::Debug>(
+        &self,
+        env: Env<Value>,
+        tag: Tag
+    ) -> Result<(Env<Value>, &LazyCode<Code>), Error<Value>> {
+        use LazyCode::*;
+        match self {
+            Code(_code) => todo!("error"),
+            Or(or_code) => or_code.send_loop(env, tag),
+            Pattern(_pattern_code) => todo!("error"),
+        }
+    }
+
+    pub fn send_value_shape<Value: PatternMatchableValue + std::fmt::Debug>(
+        &self,
+        value_shape: ValueShape<Value>,
+    ) -> Result<(Env<Value>, &LazyCode<Code>), Error<Value>> {
+        self.send_value_shape_loop(Env::new(), value_shape)
+    }
+
+    fn send_value_shape_loop<Value: PatternMatchableValue + std::fmt::Debug>(
+        &self,
+        env: Env<Value>,
+        value_shape: ValueShape<Value>,
+    ) -> Result<(Env<Value>, &LazyCode<Code>), Error<Value>> {
+        use LazyCode::*;
+        match self {
+            Code(_code) => todo!("error"),
+            Or(_or_code) => todo!("error"),
+            Pattern(pattern_code) => pattern_code.send_value_shape_loop(env, value_shape),
+        }
+    }
+}
+
+impl <Code> LazyOrCode<Code> {
     fn send_loop<Value: PatternMatchableValue + std::fmt::Debug>(
         &self,
         env: Env<Value>,
@@ -134,7 +178,7 @@ impl <Code> OrCode<Code> {
     }
 }
 
-impl <Code> PatternCode<Code> {
+impl <Code> LazyPatternCode<Code> {
     fn send_value_loop<Value>(
         &self,
         env: Env<Value>,

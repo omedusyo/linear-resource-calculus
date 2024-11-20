@@ -130,12 +130,6 @@ type Arrow(A, B) = &{ #send A . B }
 
 obj { #send x . body }
 
-
-// cartesian vs linear identifiers
-fn f(x, y, z)[u, v] {
-}
-
-
 // parsing objects
 
 type Option(A) = +{ #some A | #none () }

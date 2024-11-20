@@ -1,4 +1,6 @@
 use std::fmt;
+use std::rc::Rc;
+use rpds::Queue; // immutable queue
 use crate::tokenizer::{TokenStream, Token, TokenType};
 use crate::syntax::{
     anyidentifier, anytoken, identifier, token, peek_anytoken, peek_token, vector, delimited_nonempty_vector, delimited_vector,
@@ -11,6 +13,7 @@ use crate::duality::{
     pattern,
     pattern::Pattern,
     matcher::{StrictCode, StrictOrCode, StrictPatternCode},
+    sender::{LazyCode, LazyOrCode, LazyPatternCode},
     value,
     value::{PatternMatchableValue, ValueShape, ValueShape0},
 };
@@ -384,14 +387,18 @@ pub fn parse_expression(input: TokenStream) -> IResult0<Expression> {
                 "obj" => {
                     // obj { #hd . body0 | #tl . body1 }
                     let (input, code) = parse_code(input)?;
-                    Ok((input, Expression::object(code)))
+                    // TODO
+                    todo!()
+                    // Ok((input, Expression::object(code)))
                 },
                 "send" => {
                     // Same discussion applies as in the "match" case.
                     // send[%obj, %msg]
                     let (input, obj) = parse_expression(input)?;
                     let (input, msg) = parse_expression(input)?;
-                    Ok((input, Expression::send(obj, msg)))
+                    // TODO
+                    todo!()
+                    // Ok((input, Expression::send(obj, msg)))
                 },
                 s => match identifier_to_operation_code(s) {
                     Some(op_code) => 
@@ -446,9 +453,6 @@ pub struct Program {
 }
 
 #[derive(Debug)]
-// This is awkward, but I think I need to put body: Rc<Expression> atleaest...
-// These functions don't capture any linear resources,
-// so we should be able to call them repeatedly.
 pub struct FunctionDefinition {
     name: FunctionName,
     parameters: Vec<VariableName>,
@@ -484,83 +488,68 @@ impl Program {
 
 // ===Expressions===
 #[derive(Debug, Clone)]
-// TODO: Replace Box with Rc
-pub struct Expression(pub Box<Expression0>);
+pub struct Expression(pub Rc<Expression0>);
 
-// TODO: Get rid of the Clone
-// Clone is here only because we have function definitions.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum Expression0 {
     Int(i32),
     OperationApplication1(OperationCode, Expression),
     OperationApplication2(OperationCode, Expression, Expression),
+
     Call(FunctionName, Vec<Expression>),
-    // TODO: Separate constructors into its own type
-    Tag_(Tag),
-    Tagged(Tag, Expression),
-    Tuple(Vec<Expression>),
-    Match { arg: Expression, code: StrictCode<Expression> },
+
     VarMove(VariableName),
     VarClone(VariableName),
     VarDrop(VariableName, Expression),
     Cut { bindings: Bindings, body: Expression },
     // You can always replace LetMove with Cut, but it can be incredebly tedious.
     LetMove { bindings: Bindings, body: Expression },
-    Object { code: StrictCode<Expression> },
-    Send(Expression, Expression),
-}
 
-#[derive(Debug, Clone)]
-pub struct Cons(Box<Cons0>);
-#[derive(Debug, Clone)]
-enum Cons0 {
+    // TODO: Separate constructors into its own type
     Tag(Tag),
     Tagged(Tag, Expression),
     Tuple(Vec<Expression>),
+    Match { arg: Expression, code: StrictCode<Expression> },
+
+    Object { code: LazyCode<Expression> },
+    Send(Expression, Msg),
 }
 
+// TODO: Separate constructors.
+// #[derive(Debug, Clone)]
+// pub struct Cons(Box<Cons0>);
+// #[derive(Debug, Clone)]
+// enum Cons0 {
+//     Tag(Tag),
+//     Tagged(Tag, Expression),
+//     Tuple(Vec<Expression>),
+// }
 
-// TODO: Replace Box with Rc
 #[derive(Debug, Clone)]
-pub struct Msg(Box<Msg0>);
-// TODO: Get rid of the Clone
-#[derive(Debug, Clone)]
-pub enum Msg0 {
-    Tag_(Tag),
-    Tagged(Tag, Msg),
-    Tuple(Vec<Expression>),
-    Expression(Expression),
+enum PrimitiveMsg {
+    SendTag(Tag),
+    Apply(Expression),
 }
+
+// TODO: Is it really necessary to have a queue? It makes sense from the p.o.v of composition of
+//       messages, but messages right now are not first-class.
+//       Once messages become first-class, then yes, the queue will definitely make sense.
+#[derive(Debug, Clone)]
+struct Msg(Rc<Queue<PrimitiveMsg>>);
 
 impl Msg {
-    fn tag_(tag: Tag) -> Self { Self(Box::new(Msg0::Tag_(tag))) }
-    fn tagged(tag: Tag, msg: Msg) -> Self { Self(Box::new(Msg0::Tagged(tag, msg))) }
-    fn tuple(tuple: Vec<Expression>) -> Self { Self(Box::new(Msg0::Tuple(tuple))) }
-    fn expression(expr: Expression) -> Self { Self(Box::new(Msg0::Expression(expr))) }
+    fn identity() -> Self {
+        Self(Rc::new(Queue::new()))
+    }
+    fn tag(self, tag: Tag) -> Self {
+        let queue = self.0;
+        Self(Rc::new(queue.enqueue(PrimitiveMsg::SendTag(tag))))
+    }
+    fn expression(self, e: Expression) -> Self {
+        let queue = self.0;
+        Self(Rc::new(queue.enqueue(PrimitiveMsg::Apply(e))))
+    }
 }
-
-// TODO:
-// impl PatternMatchableValue for Msg {
-//     fn to_shape(self) -> ValueShape<Self>  {
-//         use Msg0::*;
-//         match *self.0 {
-//             Tagged(tag, value) => ValueShape::tagged(tag, value.to_shape()),
-//             Tuple(expressions) => ValueShape::tuple(expressions.into_iter().map(|expr| ValueShape::value(Msg::expression(expr))).collect()),
-//             Tag_(tag) => ValueShape::tag(tag),
-//             Expression(expression) => ValueShape::value(Msg::expression(expression)),
-//         }
-//     }
-//     fn from_shape(value_shape: ValueShape<Self>) -> Self  {
-//         match *value_shape.0 {
-//             ValueShape0::Value(msg) => msg,
-//             // TODO: This should be very interesting... think it through... for tuples... there's
-//             // something very strange... we don't have messages in tuples...
-//             ValueShape0::Tuple(value_shapes) => Msg::tuple(value_shapes.into_iter().map(|value_shape| PatternMatchableValue::from_shape(value_shape)).collect()),
-//             ValueShape0::Tagged(tag, value_shape) => Msg::tagged(tag, PatternMatchableValue::from_shape(value_shape)),
-//             ValueShape0::Tag(tag) => Msg::tag_(tag),
-//         }
-//     }
-// }
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum OperationCode {
@@ -597,21 +586,21 @@ impl Bindings {
 }
 
 impl Expression {
-    fn int(x: i32) -> Self { Self(Box::new(Expression0::Int(x))) }
-    fn operation_application1(op_code: OperationCode, e0: Self) -> Self { Self(Box::new(Expression0::OperationApplication1(op_code, e0))) }
-    fn operation_application2(op_code: OperationCode, e0: Self, e1: Self) -> Self { Self(Box::new(Expression0::OperationApplication2(op_code, e0, e1))) }
-    fn call(fn_name: FunctionName, args: Vec<Self>) -> Self { Self(Box::new(Expression0::Call(fn_name, args))) }
-    fn tag(tag: Tag) -> Self { Self(Box::new(Expression0::Tag_(tag))) }
-    fn tagged(tag: Tag, e: Expression) -> Self { Self(Box::new(Expression0::Tagged(tag, e))) }
-    fn tuple(args: Vec<Expression>) -> Self { Self(Box::new(Expression0::Tuple(args))) }
-    fn match_(arg: Self, code: StrictCode<Expression>) -> Self { Self(Box::new(Expression0::Match { arg, code })) }
-    fn var_move(var: VariableName) -> Self { Self(Box::new(Expression0::VarMove(var))) }
-    fn var_clone(var: VariableName) -> Self { Self(Box::new(Expression0::VarClone(var))) }
-    fn var_drop(var: VariableName, expr: Expression) -> Self { Self(Box::new(Expression0::VarDrop(var, expr))) }
-    fn let_move(bindings: Bindings, body: Self) -> Self { Self(Box::new(Expression0::LetMove { bindings, body })) }
-    fn cut(bindings: Bindings, body: Self) -> Self { Self(Box::new(Expression0::Cut { bindings, body })) }
-    fn object(code: StrictCode<Expression>) -> Self { Self(Box::new(Expression0::Object { code })) }
-    fn send(obj: Self, e: Expression) -> Self { Self(Box::new(Expression0::Send(obj, e))) }
+    fn int(x: i32) -> Self { Self(Rc::new(Expression0::Int(x))) }
+    fn operation_application1(op_code: OperationCode, e0: Self) -> Self { Self(Rc::new(Expression0::OperationApplication1(op_code, e0))) }
+    fn operation_application2(op_code: OperationCode, e0: Self, e1: Self) -> Self { Self(Rc::new(Expression0::OperationApplication2(op_code, e0, e1))) }
+    fn call(fn_name: FunctionName, args: Vec<Self>) -> Self { Self(Rc::new(Expression0::Call(fn_name, args))) }
+    fn tag(tag: Tag) -> Self { Self(Rc::new(Expression0::Tag(tag))) }
+    fn tagged(tag: Tag, e: Expression) -> Self { Self(Rc::new(Expression0::Tagged(tag, e))) }
+    fn tuple(args: Vec<Expression>) -> Self { Self(Rc::new(Expression0::Tuple(args))) }
+    fn match_(arg: Self, code: StrictCode<Expression>) -> Self { Self(Rc::new(Expression0::Match { arg, code })) }
+    fn var_move(var: VariableName) -> Self { Self(Rc::new(Expression0::VarMove(var))) }
+    fn var_clone(var: VariableName) -> Self { Self(Rc::new(Expression0::VarClone(var))) }
+    fn var_drop(var: VariableName, expr: Expression) -> Self { Self(Rc::new(Expression0::VarDrop(var, expr))) }
+    fn let_move(bindings: Bindings, body: Self) -> Self { Self(Rc::new(Expression0::LetMove { bindings, body })) }
+    fn cut(bindings: Bindings, body: Self) -> Self { Self(Rc::new(Expression0::Cut { bindings, body })) }
+    fn object(code: LazyCode<Expression>) -> Self { Self(Rc::new(Expression0::Object { code })) }
+    fn send(obj: Self, msg: Msg) -> Self { Self(Rc::new(Expression0::Send(obj, msg))) }
 }
 
 // ===Values===
@@ -621,7 +610,7 @@ pub enum Value {
     Tag(Tag),
     Tagged(Tag, Box<Value>),
     Tuple(Vec<Value>), // Would be cool if we could use Box<[Value]>, since we don't need to resize
-    Closure { captured_env: Env, code: StrictCode<Expression> },
+    Closure { captured_env: Env, code: LazyCode<Expression> },
 }
 
 impl Value {
@@ -798,8 +787,8 @@ impl Env {
         self
     }
 
-    fn extend_from_pattern_branch_env(self, env_pb: value::Env<Value>) -> Self {
-        self.extend_many(env_pb.bindings.into_iter())
+    fn extend_from_pattern_branch_env(self, env_pm: value::Env<Value>) -> Self {
+        self.extend_many(env_pm.bindings.into_iter())
     }
 
     fn join(mut env0: Self, mut env1: Self) -> Self {
@@ -876,6 +865,7 @@ fn eval(program: &Program, env: Env, e: &Expression) -> Result<(Env, Value), Err
             match (val0, val1) {
                 (Value::Int(x0), Value::Int(x1)) => {
                     use OperationCode::*;
+                    use crate::identifier::Tag;
                     Ok((
                         env,
                         match code {
@@ -907,7 +897,7 @@ fn eval(program: &Program, env: Env, e: &Expression) -> Result<(Env, Value), Err
             let val = apply_function(program, fn_def, values)?;
             Ok((env, val))
         }
-        Tag_(tag) => {
+        Tag(tag) => {
             Ok((env, Value::Tag(tag.clone())))
         },
         Tagged(tag, e) => {
@@ -942,8 +932,8 @@ fn eval(program: &Program, env: Env, e: &Expression) -> Result<(Env, Value), Err
         Match { arg, code } => {
             let (env, arg_value) = eval(program, env, arg)?;
             match code.match_(Some(arg_value.to_shape())) {
-                Ok((env_pb, body)) => {
-                    let env = env.extend_from_pattern_branch_env(env_pb);
+                Ok((env_pm, body)) => {
+                    let env = env.extend_from_pattern_branch_env(env_pm);
                     eval(program, env, body)
                 },
                 Err(err) => Err(Error::PatternMatch(err))
@@ -967,26 +957,20 @@ fn eval(program: &Program, env: Env, e: &Expression) -> Result<(Env, Value), Err
         // I wonder if this is only a problem in dynamic language. When we have types, the parts of
         // the environment that are captured can be known statically, right? So we wouldn't have to
         // do the explicit `let`? They'd be infered?
-        Object { code: branch } => {
+        Object { code } => {
             // Note how this takes ownership of the whole environment and returns nothing!
-            Ok((Env::new(), Value::Closure { captured_env: env, code: branch.clone() }))
+            Ok((Env::new(), Value::Closure { captured_env: env, code: code.clone() }))
         },
-        Send(e0, e1) => {
-            let (env, obj) = eval(program, env, e0)?;
+        Send(e, msg) => {
+            let (env, obj) = eval(program, env, e)?;
             match obj {
                 Value::Closure { captured_env, code } => {
-                    let (env, msg) = eval(program, env, e1)?;
-                    match code.match_(Some(msg.to_shape())) {
-                        Ok((env_pb, body)) => {
-                            let captured_env = captured_env.extend_from_pattern_branch_env(env_pb);
-                            Ok((env, eval_consumming(program, captured_env, body)?))
-                        },
-                        Err(err) => Err(Error::PatternMatch(err))
-                    }
+                    let value = send_msg_consumming(program, captured_env, &code, msg.clone())?;
+                    Ok((env, value))
                 },
                 obj => Err(Error::AttemptToSendMessageToNonObject(obj)),
             }
-        }
+        },
     }
 }
 
@@ -1007,8 +991,8 @@ fn eval_bindings(program: &Program, mut env: Env, bindings: &Bindings) -> Result
     }
 
     match pattern::match_seq(&patterns[..], value_shapes) {
-        Ok(env_pb) => {
-            let captured_env = Env::new().extend_from_pattern_branch_env(env_pb);
+        Ok(env_pm) => {
+            let captured_env = Env::new().extend_from_pattern_branch_env(env_pm);
             Ok((env, captured_env))
         },
         Err(err) => Err(Error::PatternMatch(err))
@@ -1028,4 +1012,63 @@ fn apply_function(program: &Program, fn_def: &FunctionDefinition, arg_values: Ve
     } else {
         Err(Error::UnconsumedResources(env))
     }
+}
+
+fn send_msg_consumming(program: &Program, env: Env, code: &LazyCode<Expression>, msg: Msg) -> Result<Value, Error> {
+    let (env, value) = send_msg(program, env, code, msg)?;
+    if env.is_empty() {
+        Ok(value)
+    } else {
+        Err(Error::UnconsumedResources(env))
+    }
+}
+
+fn send_msg(program: &Program, mut env: Env, mut code: &LazyCode<Expression>, msg: Msg) -> Result<(Env, Value), Error> {
+    use PrimitiveMsg::*;
+    for m in msg.0.iter() {
+        match m {
+            SendTag(tag) => {
+                match code.send_tag::<Value>(tag.clone()) {
+                    Ok((env_pm, code0)) => {
+                        env = env.extend_from_pattern_branch_env(env_pm);
+                        code = code0;
+                    },
+                    Err(err) => return Err(Error::PatternMatch(err))
+                }
+            },
+            Apply(expr) => {
+                let (env0, value) = eval(program, env, expr)?;
+                env = env0;
+                let value_shape = value.to_shape();
+                match code.send_value_shape(value_shape) {
+                    Ok((env_pm, code0)) => {
+                        env = env.extend_from_pattern_branch_env(env_pm);
+                        code = code0;
+                    },
+                    Err(err) => return Err(Error::PatternMatch(err))
+                }
+            },
+        }
+    }
+    use LazyCode::*;
+    match code {
+        Code(e) => eval(program, env, e),
+        code => Ok((Env::new(), Value::Closure { captured_env: env, code: code.clone() })),
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn test_iter_queue() {
+    println!("==============\n");
+
+    let msg = Msg::identity().tag(Tag::new("foo".to_string())).tag(Tag::new("bar".to_string()));
+
+    println!("{:?}", &msg);
+    for msg in msg.0.iter() {
+        println!("{:?}", msg);
+    }
+
+    println!("\n==============\n");
+    assert!(1 == 2);
 }
