@@ -51,9 +51,9 @@ fn example_tuple_1[] {
 }
 
 fn map-server[f, xs] { match %xs {
-| #nil . let { [] = send %f @stop  . #nil }
+| #nil . let { [] = send[%f, @stop]  . #nil }
 | #cons[x, xs] .
-  let { [y, f] = send %f @inc %x .
+  let { [y, f] = send[%f, @inc %x] .
     #cons[%y, map-server[%f, %xs]]
   }
 }}
@@ -101,7 +101,7 @@ fn observe-stream-loop[stream, i, n] { match ==[clone i, clone n] {
     drop n .
     #cont[%stream]
 | #F .
-    let { [x, stream] = send %stream @next .
+    let { [x, stream] = send[%stream, @next] .
       #cons[%x, observe-stream-loop[%stream, +[%i, 1], %n]]
     }
 }}

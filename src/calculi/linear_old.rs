@@ -99,7 +99,7 @@ fn parse_pattern(input: TokenStream) -> IResult0<Pattern> {
     let (input, token0) = anytoken(input)?;
     use Token::*;
     match token0 {
-        TagSymbol => {
+        ConstructorSymbol => {
             // Tag pattern
             let (input, var_name) = anyidentifier(input)?;
             let (input, pattern) = parse_pattern(input)?;
@@ -190,7 +190,7 @@ pub fn parse_expression(input: TokenStream) -> IResult0<Expression> {
             let (input, expr) = parse_expression(input)?;
             Ok((input, Expression::var_drop(VariableName::new(var_name), expr)))
         },
-        TagSymbol => {
+        ConstructorSymbol => {
             let (input, tag) = anyidentifier(input)?;
             let (input, arg) = parse_expression(input)?;
             Ok((input, Expression::tagged(Tag::new(tag), arg)))

@@ -9,11 +9,12 @@ use crate::syntax::{
 use crate::identifier::{VariableName, FunctionName, Tag};
 use crate::IResult0;
 use std::collections::HashMap;
+use crate::duality;
 use crate::duality::{
     pattern,
     pattern::Pattern,
     matcher::{StrictCode, StrictOrCode, StrictPatternCode},
-    sender::{LazyCode, LazyOrCode, LazyPatternCode},
+    sender::{LazyCode, LazyOrCode, LazyPatternCode, SenderResponse},
     value,
     value::{PatternMatchableValue, ValueShape, ValueShape0},
 };
@@ -89,7 +90,7 @@ fn parse_tag_as_constructor(input: TokenStream) -> IResult0<Tag> {
     use Token::*;
     let (input, token0) = anytoken(input)?;
     match token0 {
-        TagSymbol => {
+        ConstructorSymbol => {
             let (input, var_name) = anyidentifier(input)?;
             Ok((input, Tag::new(var_name)))
         },
@@ -102,7 +103,7 @@ fn parse_tag_as_message(input: TokenStream) -> IResult0<Tag> {
     use Token::*;
     let (input, token0) = anytoken(input)?;
     match token0 {
-        TagSymbol => {
+        MessageSymbol => {
             let (input, var_name) = anyidentifier(input)?;
             Ok((input, Tag::new(var_name)))
         },
@@ -164,10 +165,11 @@ fn parse_pattern(input: TokenStream) -> IResult0<Pattern> {
 }
 
 // =====Parsing Code========
+// ===Parsing Strict Code===
 
-// { inner-code }
-fn parse_code(input: TokenStream) -> IResult0<StrictCode<Expression>> {
-    let (input, code) = curly_braces(parse_inner_code)(input)?;
+// { inner-strict-code }
+fn parse_strict_code(input: TokenStream) -> IResult0<StrictCode<Expression>> {
+    let (input, code) = curly_braces(parse_strict_inner_code)(input)?;
     Ok((input, code))
 }
 
@@ -187,17 +189,17 @@ fn parse_code(input: TokenStream) -> IResult0<StrictCode<Expression>> {
 // =pattern-code=
 // [x, y, z] . body
 // x . body
-fn parse_inner_code(input: TokenStream) -> IResult0<StrictCode<Expression>> {
+fn parse_strict_inner_code(input: TokenStream) -> IResult0<StrictCode<Expression>> {
     use Token::*;
     let (input_if_commited, token0) = anytoken(input)?;
     match token0 {
-        TagSymbol | OrSeparator  => { // do not commit
-            let (input, or_code) = parse_or_code(input)?;
+        ConstructorSymbol | OrSeparator  => { // do not commit
+            let (input, or_code) = parse_strict_or_code(input)?;
             Ok((input, StrictCode::or(or_code)))
         },
         OpenBracket | Identifier(_) => { // do not commit
-            let (input, and_branch) = parse_pattern_code(input)?;
-            Ok((input, StrictCode::seq(and_branch)))
+            let (input, pattern_branch) = parse_strict_pattern_code(input)?;
+            Ok((input, StrictCode::seq(pattern_branch)))
         },
         BindingSeparator => { // commit
             let (input, body) = parse_expression(input_if_commited)?;
@@ -208,8 +210,8 @@ fn parse_inner_code(input: TokenStream) -> IResult0<StrictCode<Expression>> {
 }
 
 // tagged_code | tagged_code | tagged_code
-fn parse_or_code(input: TokenStream) -> IResult0<StrictOrCode<Expression>> {
-    let (input, tagged_codes) = or_vector(parse_tag_code)(input)?;
+fn parse_strict_or_code(input: TokenStream) -> IResult0<StrictOrCode<Expression>> {
+    let (input, tagged_codes) = or_vector(parse_strict_tag_code)(input)?;
     let or_branch = StrictOrCode::new(tagged_codes);
     Ok((input, or_branch))
 }
@@ -221,7 +223,7 @@ fn parse_or_code(input: TokenStream) -> IResult0<StrictOrCode<Expression>> {
 //       | #tag01 . body
 //       }
 // #tag [x, y, z] . body
-fn parse_tag_code(input: TokenStream) -> IResult0<(Tag, StrictCode<Expression>)> {
+fn parse_strict_tag_code(input: TokenStream) -> IResult0<(Tag, StrictCode<Expression>)> {
     use Token::*;
 
     let (input, tag) = parse_tag_as_constructor(input)?;
@@ -234,25 +236,25 @@ fn parse_tag_code(input: TokenStream) -> IResult0<(Tag, StrictCode<Expression>)>
         },
         Identifier(_) => { // do not commit
             // #tag x . body
-            let (input, pattern_code) = parse_pattern_code(input)?;
+            let (input, pattern_code) = parse_strict_pattern_code(input)?;
             Ok((input, (tag, StrictCode::seq(pattern_code))))
         }
-        TagSymbol => { // do not commit
+        ConstructorSymbol => { // do not commit
             // #tag #tag1 . body
-            let (input, tagged_branch) = parse_tag_code(input)?;
+            let (input, tagged_branch) = parse_strict_tag_code(input)?;
             let or_code = StrictOrCode::new(vec![tagged_branch]);
             Ok((input, (tag, StrictCode::or(or_code))))
         },
         OpenBracket => { // do not commit
             // #tag [x, y, z] . body
-            let (input, pattern_code) = parse_pattern_code(input)?;
+            let (input, pattern_code) = parse_strict_pattern_code(input)?;
             Ok((input, (tag, StrictCode::seq(pattern_code))))
         },
         OpenCurly => { // commit
             // #tag { #tag00 . body 
             //      | #tag01 . body
             //      }
-            let (input, or_code) = parse_or_code(input_if_commited)?;
+            let (input, or_code) = parse_strict_or_code(input_if_commited)?;
             let branch = StrictCode::or(or_code);
 
             let (input, _) = token(TokenType::CloseCurly)(input)?;
@@ -265,11 +267,172 @@ fn parse_tag_code(input: TokenStream) -> IResult0<(Tag, StrictCode<Expression>)>
 // x . body
 // [p, q, r] . body
 // [[p0, p1], q, r] . body
-fn parse_pattern_code(input: TokenStream) -> IResult0<StrictPatternCode<Expression>> {
+fn parse_strict_pattern_code(input: TokenStream) -> IResult0<StrictPatternCode<Expression>> {
     let (input, pattern) = parse_pattern(input)?;
     let (input, _) = token(TokenType::BindingSeparator)(input)?;
     let (input, body) = parse_expression(input)?;
     Ok((input, StrictPatternCode::new(pattern, body)))
+}
+
+// ===Parsing Lazy Code===
+// { inner-lazy-code }
+fn parse_lazy_code(input: TokenStream) -> IResult0<LazyCode<Expression>> {
+    let (input, code) = curly_braces(parse_lazy_inner_code)(input)?;
+    Ok((input, code))
+}
+
+// =primitive code=
+// . body
+//
+// =or-code=
+// @tag0 . body
+// @tag0 @tag1 . body
+// @tag0 @tag1 @tag2 . body
+// @tag0 { @tag00 . body 
+//       | @tag01 . body
+//       }
+// @tag [x, y, z] . body
+// @tag0 . bod0 | @tag1 x . body1 | @tag2 . body2
+//
+// =pattern-code=
+// [x, y, z] . body
+// x . body
+fn parse_lazy_inner_code(input: TokenStream) -> IResult0<LazyCode<Expression>> {
+    use Token::*;
+    let (input_if_commited, token0) = anytoken(input)?;
+    match token0 {
+        // TODO: There is an ambiguity. You have to require each constructor start symbol be prefixed with `{`
+        ConstructorSymbol => {
+            todo!("crash for now! We don't yet allow constructor #tags in lazy code.")
+        },
+        BindingSeparator => { // commit
+            // @tag . body
+            let (input, body) = parse_expression(input_if_commited)?;
+            Ok((input, LazyCode::code(body)))
+        },
+        OpenBracket | Identifier(_) => { // do not commit
+            // TODO: x . 123 }
+            // @tag x . body
+            // @tag [x, y, z] . body
+            let (input, pattern_branch) = parse_lazy_pattern_code(input)?;
+            Ok((input, LazyCode::seq(pattern_branch)))
+        },
+        MessageSymbol | OrSeparator => { // do not commit
+            let (input, or_code) = parse_lazy_or_code(input)?;
+            Ok((input, LazyCode::or(or_code)))
+        },
+        _ => return Err(nom::Err::Error(nom::error::Error { input: input.input, code: nom::error::ErrorKind::Alt })),
+    }
+}
+
+// Can't have or's such as `@tag0 . bod0 | @tag1 x . body1 | @tag2 . body2`
+//
+// =primitive code=
+// . body
+//
+// =or-code=
+// @tag0 . body
+// @tag0 @tag1 . body
+// @tag0 @tag1 @tag2 . body
+// @tag0 { @tag00 . body 
+//       | @tag01 . body
+//       }
+// @tag [x, y, z] . body
+// { @tag0 . body | @tag1 . body }
+//
+// =pattern-code=
+// [x, y, z] . body
+// x . body
+// TODO: Better name...
+fn parse_lazy_postfix_code(input: TokenStream) -> IResult0<LazyCode<Expression>> {
+    use Token::*;
+    let (input_if_commited, token0) = anytoken(input)?;
+    match token0 {
+        // TODO: There is an ambiguity. You have to require each constructor start symbol be prefixed with `{`
+        ConstructorSymbol => {
+            todo!("crash for now! We don't yet allow constructor #tags in lazy code.")
+        },
+        BindingSeparator => { // commit
+            // @tag . body
+            let (input, body) = parse_expression(input_if_commited)?;
+            Ok((input, LazyCode::code(body)))
+        },
+        MessageSymbol => { // do not commit
+            // @tag @tag1 . body
+            let (input, (tag, code)) = parse_lazy_tagged_code(input)?;
+            Ok((input, LazyCode::tagged(tag, code)))
+        },
+        OpenBracket | Identifier(_) => { // do not commit
+            // @tag x . body
+            // @tag [x, y, z] . body
+            let (input, pattern_branch) = parse_lazy_pattern_code(input)?;
+            Ok((input, LazyCode::seq(pattern_branch)))
+        },
+        OpenCurly => { // commit
+            let (input, code) = parse_lazy_inner_code(input_if_commited)?;
+            let (input, _) = token(TokenType::CloseCurly)(input)?;
+            Ok((input, code))
+        },
+        _ => return Err(nom::Err::Error(nom::error::Error { input: input.input, code: nom::error::ErrorKind::Alt })),
+    }
+}
+
+// tagged_code | tagged_code | tagged_code
+fn parse_lazy_or_code(input: TokenStream) -> IResult0<LazyOrCode<Expression>> {
+    let (input, tagged_codes) = or_vector(parse_lazy_tagged_code)(input)?;
+    let or_branch = LazyOrCode::new(tagged_codes);
+    Ok((input, or_branch))
+}
+
+// x lazy-code
+// [p, q, r] lazy-code
+// [[p0, p1], q, r] lazy-code
+fn parse_lazy_pattern_code(input: TokenStream) -> IResult0<LazyPatternCode<Expression>> {
+    let (input, pattern) = parse_pattern(input)?;
+    let (input, code) = parse_lazy_inner_code(input)?;
+    Ok((input, LazyPatternCode::new(pattern, code)))
+}
+
+// @tag0 . body
+// @tag0 x . body
+// @tag0 @tag1 . body
+// @tag0 { @tag00 . body 
+//       | @tag01 . body
+//       }
+// @tag [x, y, z] . body
+fn parse_lazy_tagged_code(input: TokenStream) -> IResult0<(Tag, LazyCode<Expression>)> {
+    let (input, tag) = parse_tag_as_message(input)?;
+    let (input, code) = parse_lazy_postfix_code(input)?;
+    Ok((input, (tag, code)))
+}
+
+// ===Parsing Messages===
+// @msg
+// expression
+fn parse_primitive_msg(input: TokenStream) -> IResult0<PrimitiveMsg> {
+    use Token::*;
+    use PrimitiveMsg::*;
+    let (_, token0) = anytoken(input)?;
+    match token0 {
+        MessageSymbol => { // do not commit
+            let (input, tag) = parse_tag_as_message(input)?;
+            Ok((input, SendTag(tag)))
+        },
+        _ => {
+            let (input, e) = parse_expression(input)?;
+            Ok((input, Apply(e)))
+        },
+    }
+}
+
+// sequence of messages
+fn parse_msg(mut input: TokenStream) -> IResult0<Msg> {
+    let mut msg = Msg::identity();
+    while let Ok((input0, m)) = parse_primitive_msg(input) {
+        msg = msg.enqueue(m);
+        input = input0;
+    }
+    Ok((input, msg))
 }
 
 // ===Parsing bindings===
@@ -322,7 +485,7 @@ pub fn parse_expression(input: TokenStream) -> IResult0<Expression> {
             let (input, expr) = parse_expression(input)?;
             Ok((input, Expression::var_drop(VariableName::new(var_name), expr)))
         },
-        TagSymbol => {
+        ConstructorSymbol => {
             let (input, tag) = anyidentifier(input)?;
             let tag = Tag::new(tag);
             let (_, token) = peek_anytoken(input)?;
@@ -381,24 +544,35 @@ pub fn parse_expression(input: TokenStream) -> IResult0<Expression> {
                     //       And it seems pretty useless... we would have it only for consistency
                     //       sake...
                     let (input, arg) = parse_expression(input)?;
-                    let (input, code) = parse_code(input)?;
+                    let (input, code) = parse_strict_code(input)?;
                     Ok((input, Expression::match_(arg, code)))
                 },
                 "obj" => {
                     // obj { #hd . body0 | #tl . body1 }
-                    let (input, code) = parse_code(input)?;
-                    // TODO
-                    todo!()
-                    // Ok((input, Expression::object(code)))
+                    let (input, code) = parse_lazy_code(input)?;
+                    Ok((input, Expression::object(code)))
                 },
                 "send" => {
-                    // Same discussion applies as in the "match" case.
+                    // send[%obj]
                     // send[%obj, %msg]
+                    let (input, _) = token(TokenType::OpenBracket)(input)?;
                     let (input, obj) = parse_expression(input)?;
-                    let (input, msg) = parse_expression(input)?;
-                    // TODO
-                    todo!()
-                    // Ok((input, Expression::send(obj, msg)))
+
+                    let (input, token0) = anytoken(input)?;
+                    match token0 {
+                        Comma => {
+                            let (input, msg) = parse_msg(input)?;
+                            let (input, _) = token(TokenType::CloseBracket)(input)?;
+                            Ok((input, Expression::send(obj, msg)))
+                        },
+                        CloseBracket => {
+                            todo!()
+                            //  The following is wrong! It should be a completely new thing like Expression::force(obj) which we don't have yet.
+                            //  We probably don't want this anyway.
+                            // Ok((input, Expression::send(obj, Msg::identity())))l
+                        },
+                        _ => todo!()
+                    }
                 },
                 s => match identifier_to_operation_code(s) {
                     Some(op_code) => 
@@ -424,26 +598,6 @@ pub fn parse_expression(input: TokenStream) -> IResult0<Expression> {
         _ => Err(nom::Err::Error(nom::error::Error { input: input.input, code: nom::error::ErrorKind::Alt })),
     }
 }
-
-pub fn parse_match_expression(input: TokenStream) -> IResult0<Expression> {
-                    // TODO: take a lookahead if this happens to be {
-                    // let (input, arg) = parse_expression(input)?;
-                    // let (input, branches) = parse_match_expression(input)?;
-                    // Ok((input, Expression::match_(arg, branches)))
-    todo!()
-
-}
-pub fn parse_obj_expression(input: TokenStream) -> IResult0<Expression> {
-    // obj { #hd . body0 | #tl . body1 }
-                    // TODO: take a lookahead if this happens to be {
-                    // let (input, arg) = parse_expression(input)?;
-                    // let (input, branches) = parse_match_expression(input)?;
-                    // Ok((input, Expression::object(branches)))
-    todo!()
-
-}
-
-
 
 // ===Program===
 #[derive(Debug)]
@@ -535,19 +689,26 @@ enum PrimitiveMsg {
 //       messages, but messages right now are not first-class.
 //       Once messages become first-class, then yes, the queue will definitely make sense.
 #[derive(Debug, Clone)]
-struct Msg(Rc<Queue<PrimitiveMsg>>);
+pub struct Msg(Rc<Queue<PrimitiveMsg>>);
 
 impl Msg {
     fn identity() -> Self {
         Self(Rc::new(Queue::new()))
     }
     fn tag(self, tag: Tag) -> Self {
-        let queue = self.0;
-        Self(Rc::new(queue.enqueue(PrimitiveMsg::SendTag(tag))))
+        self.enqueue(PrimitiveMsg::SendTag(tag))
     }
     fn expression(self, e: Expression) -> Self {
+        self.enqueue(PrimitiveMsg::Apply(e))
+    }
+    fn enqueue(self, m: PrimitiveMsg) -> Self {
         let queue = self.0;
-        Self(Rc::new(queue.enqueue(PrimitiveMsg::Apply(e))))
+        Self(Rc::new(queue.enqueue(m)))
+    }
+    fn split(&self) -> Option<(&PrimitiveMsg, Msg)> {
+        let m = self.0.peek()?;
+        let msg = Msg(Rc::new(self.0.dequeue().unwrap()));
+        Some((m, msg))
     }
 }
 
@@ -610,7 +771,13 @@ pub enum Value {
     Tag(Tag),
     Tagged(Tag, Box<Value>),
     Tuple(Vec<Value>), // Would be cool if we could use Box<[Value]>, since we don't need to resize
-    Closure { captured_env: Env, code: LazyCode<Expression> },
+    Closure(Closure),
+}
+
+#[derive(Debug)]
+struct Closure {
+    env: Env,
+    code: LazyCode<Expression>,
 }
 
 impl Value {
@@ -651,6 +818,15 @@ impl Value {
             Closure { .. } => todo!(), // this should crash
         }
     }
+
+    fn force_closure(self) -> Result<Closure, Error> {
+        match self {
+            Value::Closure(closure) => {
+                Ok(closure)
+            },
+            value => Err(Error::AttemptToSendMessageToNonObject(value)),
+        }
+    }
 }
 
 impl PatternMatchableValue for Value {
@@ -659,9 +835,7 @@ impl PatternMatchableValue for Value {
         match self {
             Tagged(tag, value) => ValueShape::tagged(tag, value.to_shape()),
             Tuple(values) => ValueShape::tuple(values.into_iter().map(|val| val.to_shape()).collect()),
-            Int(x) => ValueShape::value(Int(x)),
-            Tag(tag) => ValueShape::tag(tag),
-            Closure { captured_env, code: branches } => ValueShape::value(Closure { captured_env, code: branches }),
+            value => ValueShape::value(value),
         }
     }
     fn from_shape(value_shape: ValueShape<Self>) -> Self  {
@@ -693,7 +867,7 @@ impl fmt::Display for Value {
                 }
                 write!(f, "]")
             },
-            Closure { captured_env, ..  } => write!(f, "obj {{ {}@code }}", captured_env),
+            Closure(closure) => write!(f, "obj {{ {}@code }}", closure.env),
         }
     }
 }
@@ -798,6 +972,14 @@ impl Env {
         }
         env0
     }
+
+    fn consume(self) -> Result<(), Error> {
+        if self.is_empty() {
+            Ok(())
+        } else {
+            Err(Error::UnconsumedResources(self))
+        }
+    }
 }
 
 impl fmt::Display for Env {
@@ -817,7 +999,7 @@ pub enum Error {
     FunctionLookupFailure(FunctionName),
     FunctionCallArityMismatch { fn_name: FunctionName, expected: usize, received: usize },
     VariableLookupFailure(VariableName),
-    PatternMatch(pattern::Error<Value>),
+    PatternMatch(duality::error::Error<Value>),
     UnconsumedResources(Env),
     AttemptToSendMessageToNonObject(Value),
 }
@@ -829,11 +1011,8 @@ pub fn eval_start(program: &Program, e: Expression) -> Result<Value, Error> {
 
 fn eval_consumming(program: &Program, env: Env, e: &Expression) -> Result<Value, Error> {
     let (env, value) = eval(program, env, e)?;
-    if env.is_empty() {
-        Ok(value)
-    } else {
-        Err(Error::UnconsumedResources(env))
-    }
+    env.consume()?;
+    Ok(value)
 }
 
 // Both the environment and the expression should be completely consumed to construct the final value.
@@ -959,17 +1138,11 @@ fn eval(program: &Program, env: Env, e: &Expression) -> Result<(Env, Value), Err
         // do the explicit `let`? They'd be infered?
         Object { code } => {
             // Note how this takes ownership of the whole environment and returns nothing!
-            Ok((Env::new(), Value::Closure { captured_env: env, code: code.clone() }))
+            Ok((Env::new(), Value::Closure(Closure { env, code: code.clone() })))
         },
         Send(e, msg) => {
             let (env, obj) = eval(program, env, e)?;
-            match obj {
-                Value::Closure { captured_env, code } => {
-                    let value = send_msg_consumming(program, captured_env, &code, msg.clone())?;
-                    Ok((env, value))
-                },
-                obj => Err(Error::AttemptToSendMessageToNonObject(obj)),
-            }
+            send_msg(program, env, obj, msg)
         },
     }
 }
@@ -1007,68 +1180,102 @@ fn apply_function(program: &Program, fn_def: &FunctionDefinition, arg_values: Ve
     
     let env = Env::new().extend_many(fn_def.parameters.iter().zip(arg_values).map(|(var, val)| (var.clone(), val)));
     let (env, val) = eval(program, env, &fn_def.body)?;
-    if env.is_empty() {
-        Ok(val)
-    } else {
-        Err(Error::UnconsumedResources(env))
-    }
+    env.consume()?;
+    Ok(val)
 }
 
-fn send_msg_consumming(program: &Program, env: Env, code: &LazyCode<Expression>, msg: Msg) -> Result<Value, Error> {
-    let (env, value) = send_msg(program, env, code, msg)?;
-    if env.is_empty() {
-        Ok(value)
-    } else {
-        Err(Error::UnconsumedResources(env))
-    }
-}
-
-fn send_msg(program: &Program, mut env: Env, mut code: &LazyCode<Expression>, msg: Msg) -> Result<(Env, Value), Error> {
-    use PrimitiveMsg::*;
-    for m in msg.0.iter() {
-        match m {
-            SendTag(tag) => {
-                match code.send_tag::<Value>(tag.clone()) {
-                    Ok((env_pm, code0)) => {
-                        env = env.extend_from_pattern_branch_env(env_pm);
-                        code = code0;
-                    },
-                    Err(err) => return Err(Error::PatternMatch(err))
-                }
-            },
-            Apply(expr) => {
-                let (env0, value) = eval(program, env, expr)?;
-                env = env0;
-                let value_shape = value.to_shape();
-                match code.send_value_shape(value_shape) {
-                    Ok((env_pm, code0)) => {
-                        env = env.extend_from_pattern_branch_env(env_pm);
-                        code = code0;
-                    },
-                    Err(err) => return Err(Error::PatternMatch(err))
-                }
-            },
-        }
-    }
+// ===Sending messages===
+fn make_value_from_code_and_env(program: &Program, env: Env, code: &LazyCode<Expression>) -> Result<Value, Error> {
     use LazyCode::*;
     match code {
-        Code(e) => eval(program, env, e),
-        code => Ok((Env::new(), Value::Closure { captured_env: env, code: code.clone() })),
+        Code(e) => {
+            eval_consumming(program, env, &e)
+        },
+        code => Ok(Value::Closure(Closure { env, code: code.clone() }))
     }
 }
 
-#[cfg(test)]
-#[test]
-fn test_iter_queue() {
-    println!("==============\n");
+fn send_value_to_closure(program: &Program, closure: Closure, arg_value: Value) -> Result<Value, Error> {
+    let value_shape = arg_value.to_shape();
+    match closure.code.send_value_shape(value_shape) {
+        Ok(response) => {
+            use SenderResponse::*;
+            match response {
+                Success(env_pm, code) => {
+                    let val = make_value_from_code_and_env(program, closure.env.extend_from_pattern_branch_env(env_pm), code)?;
+                    Ok(val)
+                },
+                StuckSendingTag(env_pm, e, tag) => {
+                    let closure_env = closure.env.extend_from_pattern_branch_env(env_pm);
+                    let obj = eval_consumming(program, closure_env, e)?;
+                    let closure = obj.force_closure()?;
+                    let (env, val) = send_tag_to_closure(program, Env::new(), closure, &tag)?;
+                    env.consume()?;
+                    Ok(val)
+                },
+                StuckSendingValue(env_pm, e, arg_value) => {
+                    let closure_env = closure.env.extend_from_pattern_branch_env(env_pm);
+                    let obj = eval_consumming(program, closure_env, e)?;
 
-    let msg = Msg::identity().tag(Tag::new("foo".to_string())).tag(Tag::new("bar".to_string()));
-
-    println!("{:?}", &msg);
-    for msg in msg.0.iter() {
-        println!("{:?}", msg);
+                    let closure = obj.force_closure()?;
+                    let value = send_value_to_closure(program, closure, arg_value)?;
+                    Ok(value)
+                },
+            }
+        },
+        Err(err) => return Err(Error::PatternMatch(err)),
     }
+}
 
-    println!("\n==============\n");
-    assert!(1 == 2);
+fn send_tag_to_closure(program: &Program, env: Env, closure: Closure, tag: &Tag) -> Result<(Env, Value), Error> {
+    match closure.code.send_tag::<Value>(tag.clone()) {
+        Ok(response) => {
+            use SenderResponse::*;
+            match response {
+                Success(env_pm, code) => {
+                    let val = make_value_from_code_and_env(program, closure.env.extend_from_pattern_branch_env(env_pm), code)?;
+                    Ok((env, val))
+                },
+                StuckSendingTag(env_pm, e, tag) => {
+                    let closure_env = closure.env.extend_from_pattern_branch_env(env_pm);
+                    let obj = eval_consumming(program, closure_env, e)?;
+                    send_primitive_msg(program, env, obj, &PrimitiveMsg::SendTag(tag))
+                },
+                StuckSendingValue(env_pm, e, arg_value) => {
+                    let closure_env = closure.env.extend_from_pattern_branch_env(env_pm);
+                    let obj = eval_consumming(program, closure_env, e)?;
+                    let closure = obj.force_closure()?;
+                    let value = send_value_to_closure(program, closure, arg_value)?;
+                    Ok((env, value))
+                },
+            }
+        },
+        Err(err) => return Err(Error::PatternMatch(err)),
+    }
+}
+
+fn send_primitive_msg_to_closure(program: &Program, env: Env, closure: Closure, m: &PrimitiveMsg) -> Result<(Env, Value), Error> {
+    use PrimitiveMsg::*;
+    match m {
+        SendTag(tag) => {
+            send_tag_to_closure(program, env, closure, tag)
+        },
+        Apply(expr) => {
+            let (env, arg_value) = eval(program, env, expr)?;
+            let value = send_value_to_closure(program, closure, arg_value)?;
+            Ok((env, value))
+        },
+    }
+}
+
+fn send_primitive_msg(program: &Program, env: Env, obj: Value, m: &PrimitiveMsg) -> Result<(Env, Value), Error> {
+    let closure = obj.force_closure()?;
+    send_primitive_msg_to_closure(program, env, closure, m)
+}
+
+fn send_msg(program: &Program, mut env: Env, mut value: Value, msg: &Msg) -> Result<(Env, Value), Error> {
+    for m in msg.0.into_iter() {
+        (env, value) = send_primitive_msg(program, env, value, m)?;
+    }
+    Ok((env, value))
 }

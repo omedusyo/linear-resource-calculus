@@ -2,7 +2,8 @@ use std::rc::Rc;
 use std::fmt;
 use crate::identifier::{VariableName, Tag};
 use crate::duality::{
-    pattern::{Pattern, Error},
+    pattern::Pattern,
+    error::Error,
     value::{ValueShape, ValueShape0, Env, PatternMatchableValue}
 };
 

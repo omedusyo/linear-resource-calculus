@@ -1,20 +1,11 @@
 use std::rc::Rc;
 use std::fmt;
 use crate::identifier::VariableName;
-use crate::identifier::Tag;
 use crate::helper::fmt_sequence;
-use crate::duality::value::{PatternMatchableValue, ValueShape, ValueShape0, Env};
-
-// ===Errors===
-#[derive(Debug)]
-pub enum Error<Value> {
-    AttemptToFeedNonTaggedValueIntoOrPatternCode(Value),
-    AttemptToMatchTuplesToTupleCodeOfDifferingLengths,
-    AttemptToFeedComplexValueIntoPatternUnguarded(Value),
-    AttemptToFeedTagIntoComplexCode,
-    AttemptToMatchNonTupleValueAgainstTuplePatternCode(Value),
-    UnableToMatchTag(Tag),
-}
+use crate::duality::{
+    value::{PatternMatchableValue, ValueShape, ValueShape0, Env},
+    error::Error,
+};
 
 // Pattern =
 // | MatchAll(Var)

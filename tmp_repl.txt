@@ -190,7 +190,26 @@ pm[#foo 123]
 
 :r
 
-send example_tuple_0[] @fst
+obj { @next . 123 | @foo . 3112 }
+
+send[obj { @next . 123 | @foo . 3112 }, @foo]
+
+obj { @next { @bar . 123 | @q . 13} }
+
+send[obj { @next { @bar . 123 | @q . 13} }, @next @bar]
+
+send[obj { x y. +[%x, %y] }, 123]
+
+send[send[obj { x y. +[%x, %y] }, 123], 512]
+
+send[obj { x y. +[%x, %y] }, 123 512]
+
+send[obj { x y. +[%x, %y] }, 123 512 12]
+
+send[obj { . 123 }]
+
+send[example_tuple_0[], @fst]
+
 
 example_tuple_0[]
 
@@ -221,19 +240,19 @@ range-iter[5, 0]
 
 range-iter-simpler[5, 0]
 
+match ==[1,2] { #T . 123 | #F . 512 }
+
+match #T { #T . 123 | #F . 512 }
+
 :def fn f[x] { %x }
 
 
-obj { #foo[] . 123 }
+obj { @foo[] . 123 }
 
-send nats[3]  @tl @tl @tl
+send[nats[0], @tl @tl @tl @hd]
 
-send nats[0] @tl @tl @hd
+send[nats[0], @tl @hd]
 
-//{This is ambiguous} send send send nats[3]  @tl @tl @tl
-
-// You'd have to introduce brackets `send[obj, msg]` to resolve the ambiguity
-// Same applies for `match e code` vs `match[e, code]`
 
 send[incrementing-server[], @inc 5 ]
 
@@ -261,9 +280,9 @@ match #succ #zero { #succ n . %n }
 match match #succ #zero { #succ n . #succ %n } { #succ n . #succ %n }
 
 
-I probably want to add a tuple somewhere, but where?
+// I probably want to add a tuple somewhere, but where?
 
-match #succ #zero { #succ n . 123 }
+match #succ #zero { #succ n . %n }
 
 match #succ [123] { #succ [n] . %n }
 
@@ -280,13 +299,13 @@ dup[#cons[5, #nil[]]]
 
 :r
 
-fib[3, 5]
+fib[0, 1]
 
-send[fib[3, 5], #next]
+send[fib[0, 1], @next]
 
-let { [x, f] = send[fib[3, 5], #next]  . [%x, send[%f, #next]] }
+let { [x, f] = send[fib[3, 5], @next]  . [%x, send[%f, @next]] }
 
-let { [x, f] = send[fib[3, 5], #next]  . [%x, let { [x, f] = send[%f, #next] . [%x, send[%f, #next]] }] }
+let { [x, f] = send[fib[3, 5], @next]  . [%x, let { [x, f] = send[%f, @next] . [%x, send[%f, @next]] }] }
 
 
 observe-stream[fib[0, 1], 0]

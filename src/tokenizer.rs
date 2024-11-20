@@ -22,7 +22,7 @@ pub enum Token {
     VarMoveSymbol,
     VarCloneSymbol,
     VarDropSymbol,
-    TagSymbol,
+    ConstructorSymbol,
     MessageSymbol,
     Int(i32),
     End,
@@ -45,7 +45,7 @@ pub enum TokenType {
     VarMoveSymbol,
     VarCloneSymbol,
     VarDropSymbol,
-    TagSymbol,
+    ConstructorSymbol,
     MessageSymbol,
     Int,
     End,
@@ -70,7 +70,7 @@ impl Token {
             VarMoveSymbol => TokenType::VarMoveSymbol,
             VarCloneSymbol => TokenType::VarCloneSymbol,
             VarDropSymbol => TokenType::VarDropSymbol,
-            TagSymbol => TokenType::TagSymbol,
+            ConstructorSymbol => TokenType::ConstructorSymbol,
             MessageSymbol => TokenType::MessageSymbol,
             Int(_) => TokenType::Int,
             End => TokenType::End,
@@ -95,7 +95,7 @@ impl Token {
             VarMoveSymbol => true,
             VarCloneSymbol => true,
             VarDropSymbol => true,
-            TagSymbol => true,
+            ConstructorSymbol => true,
             MessageSymbol => true,
             Int(_) => true,
             End => false,
@@ -342,7 +342,7 @@ pub fn parse_token(input: &str) -> IResult<&str, Token> {
         '#' => {
             let (input, _) = anychar(input)?;
             // Note how there's no consumption of whitespace.
-            Ok((input, Token::TagSymbol))
+            Ok((input, Token::ConstructorSymbol))
         },
         '@' => {
             let (input, _) = anychar(input)?;
