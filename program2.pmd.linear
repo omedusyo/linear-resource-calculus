@@ -106,3 +106,23 @@ fn observe-stream-loop[stream, i, n] { match ==[clone i, clone n] {
     }
 }}
 
+
+
+fn example-nested-object-0[] { obj {
+| @a0 . obj { @b0 . 100
+            | @b1 . 200
+            }
+| @a1 . obj { @c0 . 600
+            | @c1 . 700
+            }
+}}
+
+fn example-nested-object-1[] { obj {
+| @a0 { @b0 . 100
+      | @b1 . 200
+      }
+| @a1 { @c0 . 600
+      | @c1 . 700
+      }
+}}
+
