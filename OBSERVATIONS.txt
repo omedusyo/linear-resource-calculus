@@ -30,3 +30,68 @@
     let { x = 123 . [clone x, %x] } // is fine
     let { x = 123 . [%x, clone x] } // is not fine, it will crash
   Now order of evaluation is important.
+
+* sending 'static' messages to 'dynamic' coinductive objects  vs  matching 'dynamic' inductive data with 'static' branches.
+    match-ind[%dynamic-ind-data, static-branch]     vs     match-coind[static-message, %dynamic-coind-obj]
+  Syntactically we have different names (and for mathc-coind, we flip the arguments because otherwise we would be plagued with syntactic ambiguity in the parser)
+    match[%dynamic-ind-data, static-branch]     vs     send[%dynamic-coind-obj, static-message]
+  The ordering is unfortunate. Would be cool to have syntax that can capture the symmetry.
+
+  Also in inductive case, all of the inductive data must be consumed at once, since the branches are static.
+  Because of the 'static' branches, we have to go as deeply as possible in the match so that we are not left with a 'static' branch at compile time (which suddenly sounds like it could be resolved via dynamic object...)
+
+  In the coinductive case, we can send the messages 'partially'... and still get reasonable intermediate objects.
+  Consider, instead of sending
+    send %obj @msg0 @msg1 [12, 3, 4] @msg2
+  we can do
+    let obj = send %obj @msg0 @msg1
+    let obj = send %obj [12, 3, 4] @msg2
+
+  How could %obj look like? Something like
+    obj {
+    | @msg0 { @msg1 [x, y, z] @msg2 .
+            | ...
+            }
+        f[x, y, z]
+    | ...
+    }
+  And with the partiality of send in mind that's equivalent to
+    obj {
+    | @msg0 . obj { 
+              | @msg1 . obj { [x, y, z] . obj { @msg2 . ... } } 
+              | ...
+              }
+    | ...
+    }
+
+* Get your abstract syntax right - and it should be very simple. Then you can build concrete syntax on top of it.
+* For a type theory, if you don't understand how cut/let works, you don't understand your type theory. That's the most fundamental thing.
+
+* In Cartesian World you have shallow cloning.
+  In Linear World, you don't have deep cloning universally... but that's not the correct analogue of shallow cloning...
+  Cartesian                            vs        Linear
+    $x shallow-clone                                %a  move
+    shallow-clone : Env -> (Env, Env)               split : Env -> (Env, Env)     // this is only informal analogy, formally this is more complex
+    let { x = e . body }                            cut { a = e . body }
+  I bet you can do a whole theory parametrized by what sort of environment you want, which is probably some sort of monoid/comonoid...
+  To get Cartesian programming, you have the cartesian environments which are made to be trivially clonable.
+  To get Linear programming, you have the linear environments, which seem to be captured by the monoid of multisubsets of values.
+  To get "Ordered" programming (not sure what name would be appropriate for this yet), you take environemnts made from List[Value].
+
+* The meaning of $, % could actually be: give-me access to the current environment.
+  Let/Cut is just another basic operator over the current environment.
+* Records (tuples with labels for their fields) are reified environments! First-Class environments! reification==representation via universal properties?
+  It could actually be pretty amazing to have an operator that just takes the current environment and puts it into a variable.
+  And cut gives a pretty sweet management of that... like record update syntax, but not ad-hoc.
+
+* There is a duality between
+    Dynamic Inductive Values   vs   Static Coinductive Messages               <- ???
+    Static matching code       vs   Dynamic Objects           <- code
+  So I probably shouldn't even have ValueShape...
+         code is matched against ??? (something that subsumes both messages and values)
+  ??? is something that can be fed into code
+  code is something that can consume ???
+* Pattern matching constructors against static code is starting from the root constructor (from roots to leafs).
+  While sending a static message to an object... there's some sort of a reversal (from leafs to roots?).
+  This distinction is present in parsing...
+    Bottom-Up vs Top-Down

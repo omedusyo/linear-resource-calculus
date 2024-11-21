@@ -130,12 +130,6 @@ type Arrow(A, B) = &{ #send A . B }
 
 obj { #send x . body }
 
-
-// cartesian vs linear identifiers
-fn f(x, y, z)[u, v] {
-}
-
-
 // parsing objects
 
 type Option(A) = +{ #some A | #none () }
@@ -182,30 +176,59 @@ cargo run repl linear
 
 mul_5[6]
 
+
+:def fn pm[x] { match %x { #foo x . %x } }
+
+match #foo #bar [1,[50, 2]] { #foo #bar [x, [y, z]] . [%y, %x, %z] }
+
+match #a #a1 [3, 4] { #a { #a0 . 123 | #a1 [x, y]. [%y, %x] }   }
+
+pm[#foo 123]
+
+
 :list fn
 
 :r
 
-send[example_tuple_0[], #fst[]]
+obj { @next . 123 | @foo . 3112 }
+
+send[obj { @next . 123 | @foo . 3112 }, @foo]
+
+obj { @next { @bar . 123 | @q . 13} }
+
+send[obj { @next { @bar . 123 | @q . 13} }, @next @q]
+
+send[obj { x y. +[%x, %y] }, 123]
+
+send[send[obj { x y. +[%x, %y] }, 123], 512]
+
+send[obj { x y. +[%x, %y] }, 123 512]
+
+send[obj { x y. +[%x, %y] }, 123 512 12]
+
+send[obj { . 123 }]
+
+send[example_tuple_0[], @fst]
+
 
 example_tuple_0[]
 
 #fst[]
 
 
-let { x = 123 . %x }
+cut { x = 123 . %x }
 
-let { x = 123 . move x }
+cut { x = 123 . move x }
 
-let { x = 123 . [clone x, %x] }
+cut { x = 123 . [clone x, %x] }
 
-let { x = 123 . [clone x, move x] }
+cut { x = 123 . [clone x, move x] }
 
-let { x = 123 . [%x, clone x] }
+cut { x = 123 . [%x, clone x] }
 
-let { x = 123 . [] }
+cut { x = 123 . [] }
 
-let { x = 123 . drop x . [] }
+cut { x = 123 . drop x . [] }
 
 
 
@@ -217,22 +240,30 @@ range-iter[5, 0]
 
 range-iter-simpler[5, 0]
 
+match ==[1,2] { #T . 123 | #F . 512 }
+
+match #T { #T . 123 | #F . 512 }
+
 :def fn f[x] { %x }
 
 
-obj {. #foo[] . 123 }
+obj { @foo[] . 123 }
 
-:r
+send[nats[0], @tl @tl @tl @hd]
 
-send[incrementing-server[], #apply[5]]
+send[nats[0], @tl @hd]
 
-map_server()
+
+send[incrementing-server[], @inc 5 ]
+
 
 ==[5, 0]
 
 incrementing-server[]
 
 range-iter[5, 0]
+
+range-iter-simpler[5, 0]
 
 map-server[incrementing-server[], range-iter[5, 0]]
 
@@ -241,27 +272,60 @@ map-server[incrementing-server[], range-iter[5, 0]]
 fib[5, 0]
 
 
-dup_nat[#succ#succ#zero[]]
+dup_nat[#succ #succ #zero]
+
+
+match #succ #zero { #succ n . %n }
+
+match match #succ #zero { #succ n . #succ %n } { #succ n . #succ %n }
+
+
+// I probably want to add a tuple somewhere, but where?
+
+match #succ #zero { #succ n . %n }
+
+match #succ [123] { #succ [n] . %n }
+
+match [123] { [n] . %n }
 
 // I need a builtin dup  that will clone inductive stuff, but will fail on objects
 
 dup[#cons[5, #nil[]]]
 
+fib[0, 1]
 
-:r
+send[fib[0, 1], @next]
 
-send[fib[3, 5], #next[]]
+let { [x, f] = send[fib[3, 5], @next]  . [%x, send[%f, @next]] }
+
+let { [x, f] = send[fib[3, 5], @next]  . [%x, let { [x, f] = send[%f, @next] . [%x, send[%f, @next]] }] }
+
 
 observe-stream[fib[0, 1], 0]
 
-observe-stream[fib[0, 1], 10]
+observe-stream[fib[0, 1], 11]
 
 
-let { [x, y] = [20, 30] . [%y, %x] }
+cut { x = 123 . %x }
 
-let { [[[x]], [y, z]] = [[[20]], [30, 40]] . [%y, %x, %z] }
+cut { x = 123, y = 512 . [%y, %x] }
 
-match [20, [30, 40]] { [x, [y, z]] . [%y, %x, %z] }
+let {. 123 }
+
+let {,,, . 123 }
+
+let { x = 123 . %x }
+
+let { x = 123, y = 512 . [%y, %x] }
+
+
+
+let { x = 123, y = 512 . [cut { a = %x . %a }, cut { b = %y . %b }] }
+
+
+cut { [x, y] = [20, 30] . [%y, %x] }
+
+cut { [[[x]], [y, z]] = [[[20]], [30, 40]] . [%y, %x, %z] }
 
 
 # ====Combined====

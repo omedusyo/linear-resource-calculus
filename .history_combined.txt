@@ -1,6 +1,4 @@
 #V2
-lin 123
-lin +[1,2]
 lin +[*[3, 4], 1]
 cart +(*(3, 4), 1)
 cart #foo()
@@ -99,3 +97,5 @@ cart let { x = thunk[123] . $x }
 cart let { x = thunk[ +[123, 5] ] . ($x, $x) }
 lin force(let { x = thunk[ +[123, 5] ] . $x })
 lin force(let { x = thunk[ 10 ] . $x })
+lin force(let { x = thunk[ 10 ] . $x }) 
+lin 123 // 

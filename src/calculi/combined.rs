@@ -206,7 +206,7 @@ fn parse_pattern(mode: Mode) -> impl FnOnce(TokenStream) -> IResult0<Pattern> {
         let (input, token0) = anytoken(input)?;
         use Token::*;
         match token0 {
-            TagSymbol => {
+            ConstructorSymbol => {
                 // Tag pattern
                 let (input, var_name) = anyidentifier(input)?;
                 let (input, pattern) = parse_pattern(mode)(input)?;
@@ -276,7 +276,7 @@ pub fn parse_cartesian_expression(input: TokenStream) -> IResult0<CartesianExpre
             let (input, var_name) = anyidentifier(input)?;
             Ok((input, CartesianExpression::var_lookup(VariableName::new(var_name))))
         },
-        TagSymbol => {
+        ConstructorSymbol => {
             let (input, tag) = anyidentifier(input)?;
             let (input, arg) = parse_cartesian_expression(input)?;
             Ok((input, CartesianExpression::tagged(Tag::new(tag), arg)))
@@ -389,7 +389,7 @@ pub fn parse_linear_expression(input: TokenStream) -> IResult0<LinearExpression>
             let (input, var_name) = anyidentifier(input)?;
             Ok((input, LinearExpression::var_lookup(VariableName::new(var_name))))
         },
-        TagSymbol => {
+        ConstructorSymbol => {
             let (input, tag) = anyidentifier(input)?;
             let (input, arg) = parse_linear_expression(input)?;
             Ok((input, LinearExpression::tagged(Tag::new(tag), arg)))
