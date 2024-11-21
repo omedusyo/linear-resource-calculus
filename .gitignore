@@ -1,2 +1,4 @@
 /target
-.history.txt
+.history_cartesian.txt
+.history_linear.txt
+.history_combined.txt
