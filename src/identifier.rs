@@ -2,7 +2,7 @@ use std::rc::Rc;
 use std::fmt;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct VariableName(Rc<String>);
+pub struct VariableName(pub Rc<String>);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct FunctionName(Rc<String>);

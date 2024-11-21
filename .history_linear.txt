@@ -1,101 +1,101 @@
 #V2
-fn mul_5[x] { *[%x, 5] }
-mul_5[6]
-mul_5[60]
-square[5]
-send[example_tuple_0[], #fst[]]
+send[obj { @next . 123 | @foo . 3112 }, @next]
+send[obj { @next . 123 | @foo . 3112 }, @foo]
+obj { @next { @bar . 123 | @q . 13} }
+send[obj { @next { @bar . 123 | @q . 13} }, @next]
+send[obj { @next { @bar . 123 | @q . 13} }, @next @bar]
+send[obj { @next { @bar . 123 | @q . 13} }, @next @bar @q]
+send[obj { @next { @bar . 123 | @q . 13} }, @next @q]
+send[obj { @next { @bar . 123 | @q . 13} }, @next @bar]
+send[obj { @next { @foo . 123 } }, @next @foo]
+send[obj { @next . 123 | @foo . 3112 }, @foo]
+obj { . 123 }
+obj { @foo[] . 123 }
+send[nats[3],  @tl @tl @tl]
+nats[3]
+send[nats[3], @tl]
+send[nats[3], @tl @tl]
+send[nats[3], @tl]
+send[send[nats[3], @tl], @tl]
+send[nats[0], @tl]
+send[nats[0], @hd]
+send[nats[0], @tl @tl]
+send[nats[0], @tl @hd]
+obj { @tl . obj { @hd . 123 }}
+send[obj { @tl . obj { @hd . 123 }}, @tl]
+send[send[obj { @tl . obj { @hd . 123 }}, @tl], @hd]
+send[obj { @tl . obj { @hd . 123 }}, @tl @hd]
+obj { @foo[] . 123 }
+pm[#foo 123]
+obj { @next . 123 | @foo . 3112 }
+send[obj { @next . 123 | @foo . 3112 }, @foo]
+send[obj { @next . 123 | @foo . 3112 }, @next]
+obj { @next { @bar . 123 | @q . 13} }
+send[obj { @next . 123 | @foo . 3112 }, @foo]
+send[obj { @next { @bar . 123 | @q . 13} }, @next @bar]
+send[obj { @next { @bar . 123 | @q . 13} }, @next @q]
+send[obj { @next { @bar . 123 | @q . 13} }, @next @bar]
+send[send[obj { x y. +[%x, %y] }, 123], 512]
+send[obj { x y. +[%x, %y] }, 123]
+obj { . 123 }
+send[nats[0], @tl]
+send[send[nats[0], @tl], @tl]
+send[nats[0], @tl @tl]
+send[fib[0, 1], @next]
+let { [x, f] = send[fib[3, 5], @next]  . [%x, send[%f, @next]] }
+let { [x, f] = send[fib[3, 5], @next]  . [%x, let { [x, f] = send[%f, @next] . [%x, send[%f, @next]] }] }
+cut { x = 123 . %x }
+cut { x = 123, y = 512 . [%y, %x] }
 let { x = 123 . %x }
-let { x = 123 . [%x] }
-let { x = 123 . [%x, %x] }
-let { x = 123 . [clone x, %x] }
-let { x = 123 . [%x, clone x] }
-[]
-let { x = 3233 .  []  }
-let { x = 123 . [] }
-let { x = 123 . [clone x, %x] }
-let { x = 123 . [%x, clone x] }
-let { x = 123 . [] }
-let { x = 123 . drop x . [] }
-range-iter[5, 0]
+let { x = 123, y = 512 . [%y, %x] }
+let { x = 123, y = 512 . [cut { a = %x . %a }, cut { b = %y . %b }] }
+cut { [x, y] = [20, 30] . [%y, %x] }
+cut { [[[x]], [y, z]] = [[[20]], [30, 40]] . [%y, %x, %z] }
+match #foo #bar [1,[50, 2]] { #foo #bar [x, [y, z]] . [%y, %x, %z] }
+match #a #a1 [3, 4] { #a { #a0 . 123 | #a1 [x, y]. [%y, %x] }   }
+pm[#foo 123]
+match ==[1,2] { #T . 123 | #F . 512 }
+match #T { #T . 123 | #F . 512 }
+send[obj { @next { @bar . 123 | @q . 13} }, @next @bar]
+send[obj { @next { @bar . 123 | @q . 13} }, @next @q]
+match #T { #T . 123 | #F . 512 }
+match ==[1,2] { #T . 123 | #F . 512 }
 range-iter-simpler[5, 0]
-fib[5]
-fib[5, 0]
-send[fib[3, 5], #next[]]
-nth[fib[0, 1], 0]
-nth[fib[0, 1], 0, 0]
-send[nth[fib[0, 1], 0, 0], #next[]]
-send[nth[fib[0, 1], 0, 1], #next[]]
-let { [x, y] = [20, 30] . [%y, %x] }
-let { [] = [] . 123 }
-let { [x, y] = [20, 30] . [%y, %x] }
-send[nth[fib[0, 1], 0, 1], #next[]]
-send[nth[fib[0, 1], 0, 0], #next[]]
-nth[fib[0, 1], 0]
-nth[fib[0, 1], 1]
-nth[fib[0, 1], 2]
-nth[fib[0, 1], 3]
-nth[fib[0, 1], 4]
-nth[fib[0, 1], 5]
-nth[fib[0, 1], 6]
-nth[fib[0, 1], 7]
-nth[fib[0, 1], 8]
-nth[fib[0, 1], 10]
-observe-stream[fib[0, 1], 0]
-observe-stream[fib[0, 1], 10]
-let { x = 123 . %x }
-let { x = 123 . move x }
-let { x = 123 . [clone x, move x] }
-let { x = 123 . [clone x, clone x] }
-let { x = 123 . [clone x, move x] }
-let { [x, y] = [20, 30] . [%y, %x] }
-let { [x, [y, z]] = [20, [30, 40]] . [%y, %x, %z] }
-match [20, [30, 40]] { [x, [y, z]] . [%y, %x, %z] }
-let { [x, y] = [20, 30] . [%y, %x] }
-let { [x, [y, z]] = [20, [30, 40]] . [%y, %x, %z] }
-let { [[[x]], [y, z]] = [[[20]], [30, 40]] . [%y, %x, %z] }
-match [20, [30, 40]] { [x, [y, z]] . [%y, %x, %z] }
-[+[5, 6], 2]
-fn mul_5[x] { *[%x, 5] }
-mul_5[6]
-square[5]
-send[example_tuple_0[], #fst[]]
-example_tuple_0[]
-#fst[]
-let { x = 123 . %x }
-let { x = 123 . move x }
-let { x = 123 . [clone x, %x] }
-let { x = 123 . [clone x, move x] }
-let { x = 123 . [%x, clone x] }
-let { x = 123 . [] }
-let { x = 123 . drop x . [] }
-example_tuple_1[]
 range-iter[5, 0]
-range-iter-simpler[5, 0]
-fn f[x] { %x }
-obj {. #foo[] . 123 }
-incrementing-server[]
-send[incrementing_server[], #apply[5]]
-send[incrementing-server[], #apply[5]]
-==[5, 0]
-incrementing-server[]
-range-iter[5, 0]
-map-server[incrementing-server[], range-iter[5, 0]]
-fib[5, 0]
-dup_nat[5]
-dup[#cons[5, #nil[]]]
-dup_nat[#zero[]]
-dup_nat[#succ[#zero[]]]
-dup_nat[#succ#zero[]]
-dup_nat[#succ #zero[]]
-dup_nat[#succ#zero[]]
-dup_nat[#succ#succ#zero[]]
-dup[#cons[5, #nil[]]]
-send[fib[3, 5], #next[]]
 observe-stream[fib[0, 1], 0]
-observe-stream[fib[0, 1], 10]
-let { [x, y] = [20, 30] . [%y, %x] }
-let { [[[x]], [y, z]] = [[[20]], [30, 40]] . [%y, %x, %z] }
-match [20, [30, 40]] { [x, [y, z]] . [%y, %x, %z] }
-123
-123123123
-123
+observe-stream[fib[0, 1], 11]
+match ==[1,2] { #T . 123 | #F . 512 }
+match #T { #T . 123 | #F . 512 }
+match #succ #zero { #succ n . %n }
+match match #succ #zero { #succ n . #succ %n } { #succ n . #succ %n }
+match #succ #zero { #succ n . %n }
+match #succ [123] { #succ [n] . %n }
+match [123] { [n] . %n }
+dup[#cons[5, #nil[]]]
+send[fib[0, 1], @next]
+let { [x, f] = send[fib[3, 5], @next]  . [%x, send[%f, @next]] }
+let { [x, f] = send[fib[3, 5], @next]  . [%x, let { [x, f] = send[%f, @next] . [%x, send[%f, @next]] }] }
+observe-stream[fib[0, 1], 0]
+observe-stream[fib[0, 1], 11]
+cut { x = 123 . %x }
+cut { x = 123, y = 512 . [%y, %x] }
+let {. 123 }
+let { x = 123 . %x }
+let { x = 123, y = 512 . [%y, %x] }
+let { x = 123, y = 512 . [cut { a = %x . %a }, cut { b = %y . %b }] }
+cut { [x, y] = [20, 30] . [%y, %x] }
+cut { [[[x]], [y, z]] = [[[20]], [30, 40]] . [%y, %x, %z] }
+example-nested-object[]
+send[example-nested-object[], @a0]
+send[example-nested-object[], @a0 @a1]
+send[example-nested-object[], @a0 @b0]
+send[example-nested-object[], @a0 @b1]
+example-nested-object[]
+send[example-nested-object[], @a0]
+send[example-nested-object[], @a0 @b0]
+send[example-nested-object[], @a0 @b1]
+send[example-nested-object[], @a1 @b0]
+send[example-nested-object[], @a1 @c0]
+send[example-nested-object[], @a1 @c1]
+send[example-nested-object-0[], @a1 @c1]
+send[example-nested-object-1[], @a1 @c1]

@@ -7,100 +7,122 @@ fn inc[x] {
 }
 
 fn dup_bool[b] { match %b {
-  #T[] . [#T[], #T[]]
-| #F[] . [#F[], #F[]]
+| #T . [#T, #T]
+| #F . [#F, #F]
 }}
 
 fn discard_bool[b] { match %b {
-  #T[] . []
-| #F[] . []
+| #T . []
+| #F . []
 }}
 
 fn dup_nat[n] { match %n {
-  #zero[] . [#zero[], #zero[]]
-| #succ n . match dup_nat[%n] {
-    [n0, n1] . [#succ %n0, #succ %n1]
-  }
+| #zero . [#zero, #zero]
+| #succ n .
+  let { [n0, n1] = dup_nat[%n] . [#succ %n0, #succ %n1] }
 }}
 
 fn discard_nat[n] { match %n {
-  #zero [] . []
+| #zero . []
 | #succ n . discard_nat[%n]
 }}
 
 fn append[xs, ys] { match %xs {
-  #nil [] . %ys
+  #nil . %ys
 | #cons [x, xs] . #cons [%x, append[%xs, %ys]]
 }}
 
 fn reverse-loop[xs, state] { match %xs {
-  #nil [] . %state
+| #nil . %state
 | #cons [x, xs] . reverse-loop[%xs, #cons [%x, %state]]
 }}
 
-fn nats[n] { obj { n = %n .
-  #hd [] . %n
-| #tl [] . nats[+[%n, 1]]
+fn nats[n] { obj {
+| @hd . %n
+| @tl . nats[+[%n, 1]]
 }}
 
 fn example_tuple_0[] {
-  obj {. #fst[] . 123 | #snd[] . 512 }
+  obj { @fst . 123 | @snd . 512 }
 }
 
 fn example_tuple_1[] {
-  obj { n = 123 . #fst[] . %n | #snd[] . +[%n, 100] }
+  cut { n = 123 . obj { @fst . %n | @snd . +[%n, 100] }}
 }
 
 fn map-server[f, xs] { match %xs {
-  #nil[] . match send[%f, #stop[]] { [] . #nil[] }
-| #cons[x, xs] . match send[%f, #apply[%x]] {
-    [y, f] . #cons[%y, map-server[%f, %xs]]
+| #nil . let { [] = send[%f, @stop]  . #nil }
+| #cons[x, xs] .
+  let { [y, f] = send[%f, @inc %x] .
+    #cons[%y, map-server[%f, %xs]]
   }
 }}
 
-fn incrementing-server[] { obj { . 
-  #stop[] . []
-| #apply[x] . [+[%x, 1], incrementing-server[]]
+fn incrementing-server[] { obj {
+| @stop . []
+| @inc x . [+[%x, 1], incrementing-server[]]
 }}
 
 fn range-iter[n, i] { 
-  match dup[%n] { [n-copy, n] .
-  match dup[%i] { [i-copy, i] .
-  match ==[%n, %i] {
-    #T[] .
-      match discard[%n-copy] { [] .
-      match discard[%i-copy] { [] .
-        #nil[] 
-      }}
-  | #F[] . match dup[%i-copy] { [i-copy, i] . #cons[%i-copy, range-iter[%n-copy, +[%i, 1]]] }
-  }
-}}}
-
-fn range-iter-simpler[n, i] { 
-  match ==[clone n, clone i] {
-    #T[] .
-      drop n .
-      drop i .
-      #nil[]
-  | #F[] . #cons[clone i, range-iter-simpler[%n, +[%i, 1]]]
+  let {
+  , [n-copy, n] = dup[%n] 
+  , [i-copy, i] = dup[%i]
+  . match ==[%n, %i] {
+    | #T .
+      let {
+      , [] = discard[%n-copy]
+      , [] = discard[%i-copy]
+      . #nil
+      }
+    | #F . let { [i-copy, i] = dup[%i-copy] . #cons[%i-copy, range-iter[%n-copy, +[%i, 1]]] }
+    }
   }
 }
 
-fn fib[x, y] { obj { x = %x, y = %y .
-   #next[] .
+fn range-iter-simpler[n, i] { 
+  match ==[clone n, clone i] {
+  | #T .
+      drop n .
+      drop i .
+      #nil
+  | #F . #cons[clone i, range-iter-simpler[%n, +[%i, 1]]]
+  }
+}
+
+fn fib[x, y] { obj { @next .
    [clone x,  fib[clone y, +[%x, %y]]]
 }}
 
 fn observe-stream[stream, n] { observe-stream-loop[%stream, 0, %n] }
 
 fn observe-stream-loop[stream, i, n] { match ==[clone i, clone n] {
-  #T[] .
+| #T .
     drop i .
     drop n .
     #cont[%stream]
-| #F[] .
-    let { [x, stream] = send[%stream, #next[]] .
+| #F .
+    let { [x, stream] = send[%stream, @next] .
       #cons[%x, observe-stream-loop[%stream, +[%i, 1], %n]]
     }
+}}
+
+
+
+fn example-nested-object-0[] { obj {
+| @a0 . obj { @b0 . 100
+            | @b1 . 200
+            }
+| @a1 . obj { @c0 . 600
+            | @c1 . 700
+            }
+}}
+
+fn example-nested-object-1[] { obj {
+| @a0 { @b0 . 100
+      | @b1 . 200
+      }
+| @a1 { @c0 . 600
+      | @c1 . 700
+      }
 }}
 

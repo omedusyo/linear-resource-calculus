@@ -25,9 +25,7 @@ pub struct CartesianInterpreter {
 }
 
 pub struct LinearInterpreter {
-    // Because of the lack of &mut style api in lambda_linear,
-    // we occasionally need to temporarily take ownership of &mut Program, so we swap it with Nothing.
-    program: Option<linear::Program>,
+    program: linear::Program,
 }
 
 pub struct CombinedInterpreter {
@@ -42,7 +40,7 @@ impl CartesianInterpreter {
 
 impl LinearInterpreter {
     pub fn new() -> Self {
-        Self { program: Some(linear::Program::new()) }
+        Self { program: linear::Program::new() }
     }
 }
 
@@ -142,19 +140,12 @@ impl Interpreter for LinearInterpreter {
     }
 
     fn eval_expression(&mut self, expr: Self::Expression) -> Result<Self::Value, Self::RuntimeError> {
-        let program = std::mem::replace(&mut self.program, None).unwrap(); // SAFETY: No one but eval_expression can set self.program to None, so we're safe.
-        let program_backup = program.clone(); // This is a bit insanee, fur for REPL it's fine.
-        match linear::eval_start(program, expr) {
-            Ok((program, value)) => {
-                self.program = Some(program);
+        let v =  &self.program;
+        match linear::eval_start(&self.program, expr) {
+            Ok(value) => {
                 Ok(value)
             },
-            Err(err) => {
-                self.program = Some(program_backup);
-                // Note that this should be a hard crash, that blows up the interpreter (unless it
-                // backs up the whole program before hand)
-                Err(err)
-            }
+            Err(err) => Err(err)
         }
     }
 
@@ -170,15 +161,8 @@ impl Interpreter for LinearInterpreter {
     fn load_definition(&mut self, input: &str) -> Result<(), Self::ParseError> {
         match linear::parse_function_definition(TokenStream::new(input)) {
             Ok((input, fn_def)) => if input.input.is_empty() {
-                match &mut self.program {
-                    Some(program) => {
-                        program.update_function_definition(fn_def);
-                        Ok(())
-                    },
-                    // SAFETY: We're not doing any concurrency, so it is impossible for load_definition and
-                    // eval_expresion to be running at the same time. Hence `self.program` is `Some(_)`
-                    None => unreachable!(),
-                }
+                self.program.update_function_definition(fn_def);
+                Ok(())
             } else {
                 let err = nom::Err::Error(nom::error::Error { input: input.input, code: nom::error::ErrorKind::NonEmpty });
                 Err(format!("{:?}", err))
@@ -191,7 +175,7 @@ impl Interpreter for LinearInterpreter {
         match linear::parse_program(TokenStream::new(input)) {
             Ok((input, program)) => {
                 if input.input.is_empty() {
-                    self.program = Some(program);
+                    self.program = program;
                     Ok(())
                 } else {
                     Err(format!("Failed to parse the whole file. Remaining input: \n{}", input.input))
@@ -202,12 +186,10 @@ impl Interpreter for LinearInterpreter {
     }
 
     fn list_functions(&mut self) -> Vec<String> {
-        let program = std::mem::replace(&mut self.program, None).unwrap(); // SAFETY: No one but eval_expression can set self.program to None, so we're safe.
-        let mut fn_names = Vec::with_capacity(program.function_definitions_ordering.len());
-        for fn_name in &program.function_definitions_ordering {
+        let mut fn_names = Vec::with_capacity(self.program.function_definitions_ordering.len());
+        for fn_name in &self.program.function_definitions_ordering {
             fn_names.push(format!("{}", fn_name.str()));
         }
-        self.program = Some(program);
         fn_names
     }
 }
