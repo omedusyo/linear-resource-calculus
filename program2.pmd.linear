@@ -125,4 +125,3 @@ fn example-nested-object-1[] { obj {
       | @c1 . 700
       }
 }}
-

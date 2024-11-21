@@ -72,3 +72,31 @@ fn lin observe-stream-loop[stream, i, n] { match ==[clone i, clone n] {
       #cons[%x, observe-stream-loop[%stream, +[%i, 1], %n]]
     }
 }}
+
+
+
+// ====Automata====
+
+// TODO:
+//fn lin from-state-update[init-state, update] {
+//}
+
+
+// ===Basic Isos===
+
+//===Thunking and Forcing===
+
+// (Thunk[A], Thunk[B]) -> Thunk[[A, B]]
+fn cart thunk-pair-0(th) {
+  let { (th0, th1) = th .
+    thunk[ [force(th0),  force(th1)] ]
+  }
+}
+
+// TODO: This seems really wrong...
+// We should replace (A, B) with obj[fst: A, snd: B]
+// Thunk[obj[fst: A, snd:B]] -> (Thunk[A], th1: Thunk[B] )
+//fn cart thunk-pair-1(th-of-pair) {
+//  (thunk[force(th-of-pair)], thunk[])
+//}
+
