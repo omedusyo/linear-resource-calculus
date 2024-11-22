@@ -249,6 +249,10 @@ match #T { #T . 123 | #F . 512 }
 
 obj { @foo[] . 123 }
 
+nats[0]
+
+send[nats[0], @tl @tl @tl @hd]
+
 send[nats[0], @tl @tl @tl @hd]
 
 send[nats[0], @tl @hd]
@@ -326,6 +330,458 @@ let { x = 123, y = 512 . [cut { a = %x . %a }, cut { b = %y . %b }] }
 cut { [x, y] = [20, 30] . [%y, %x] }
 
 cut { [[[x]], [y, z]] = [[[20]], [30, 40]] . [%y, %x, %z] }
+
+send[init-server-0[], @inc @inc @reset @add 5]
+
+let { y = 1 . obj { [x0, x1] . +[%x0, +[%x1, %y]] } }
+
+
+====Cartesian====
+
+cargo run repl cartesian
+
+let { foo = 123 . $foo }
+
+let { foo = 123 . read foo }
+
+obj { x . $x }
+
+send(obj { x . $x }, 123)
+
+:def fn f(x) { $x }
+
+f(123)
+
+
+#nil()
+
+#cons(123, #nil())
+
+#pair(#foo(#nil()), #pair())
+
+:def fn square(x) { *($x, $x) }
+
+square(3)
+
+:def fn pyth(x, y) { +(square($x), square($y)) }
+
+pyth(3, 4)
+
+:list fn
+
+$bar
+
+==(2, +(1, 1))
+
+let { x = 6 . match ==(2, +(1, 1)) { #T() . $x | #F() . *(3, $x) } }
+
+:def fn foo(x) { 1 }
+
+*(3, 4)
+
+let { inc = obj { x . +($x, 1) } . send($inc, 5) }
+
+(1, 2, 3)
+
+#nil ()
+
+#cons(20, #cons(30, #nil()))
+
+(123)
+
+((123))
+
+#true()
+
+(30, 50)
+
+#nil ()
+
+:def fn fct(x) { match ==($x, 0) { #T() . 1 | #F() . *($x, fct(sub($x, 1))) } }
+
+fct(5)
+
+()
+
+#cons(1, 2)
+
+
+match #foo (3, 4) { #bar () . 123 | #foo (x, y) . $x }
+
+match #foo #bar () { #foo #bar x . $x | #foo #yeesh y . $y }
+
+match #foo #yeesh 512 { #foo #bar x . $x | #foo #yeesh y . $y }
+
+match #foo #yeesh 512 { #foo #yeesh y . $y | #foo #bar x . $x }
+
+
+:def fn map(f, xs) { match $xs { #nil() . #nil() | #cons(x, xs) . #cons(send($f, $x), map($f, $xs)) } }
+
+#cons(20, #cons(10, #nil()))
+
+map(obj { x . *($x, $x) }, #cons(10, #nil()))
+
+:def fn range-iter(n, i) { match ==($n, $i) { #T() . #nil() | #F() . #cons($i, range-iter($n, +($i, 1))) } }
+
+range-iter(5, 0)
+
+map(obj { x . *($x, $x) }, range-iter(5, 0))
+
+range-iter(5, 0)
+
+
+obj { #force () . 123 }
+
+send(obj { #force () . 123 }, #force ())
+
+:def fn nats(n) { obj { #hd () . $n | #tl () . nats(+($n, 1)) } }
+
+send(send(send(nats(0), #tl ()), #tl ()), #hd ())
+
+// This is syntax that doesn't really exist at the moment.
+// nats(0) @ #tl() @ #tl() @ #tl() @ #hd()
+
+nats(0)
+
+// What is the type of nats(0)?
+
+// Fascinating. This has "functions" built in.
+
+type NatStream = &{ #hd Unit . i32 | #tl Unit . NatStream }
+
+// i.e.
+
+type NatStream = &{ #hd () . i32 | #tl () . NatStream }
+
+// lazy pair
+
+obj { #fst () . 23 | #snd () . 512 }
+
+send(obj { #fst () . 23 | #snd () . 512 }, #snd ())
+
+type Arrow(A, B) = &{ #send A . B }
+
+obj { #send x . body }
+
+// parsing objects
+
+type Option(A) = +{ #some A | #none () }
+
+type Parser(Token, A, E) = &{
+| #next Token . +{ #err E | #continue Parser(Token, A, E) }
+| #force Unit . +{ #err E | #ok A }
+}
+
+given p : Parser(Token, A, E)
+we can give it a token, and it can parse it somehow, then return a new parser object that awaits for next token...
+After a while we can force the parser to give us the output, which is like giving it an EOF
+
+cargo build
+
+cargo run
+
+cargo run repl cartesian
+
+:load program.pmd
+
+:list fn
+
+:r
+
+square(5)
+
+range-iter(5, 0)
+
+:def fn f(x) { $x }
+
+
+====Linear====
+
+cargo run repl linear
+
+:load program2.pmd.linear
+
+:r
+
+[+[5, 6], 2]
+
+:def fn mul_5[x] { *[%x, 5] }
+
+mul_5[6]
+
+
+:def fn pm[x] { match %x { #foo x . %x } }
+
+match #foo #bar [1,[50, 2]] { #foo #bar [x, [y, z]] . [%y, %x, %z] }
+
+match #a #a1 [3, 4] { #a { #a0 . 123 | #a1 [x, y]. [%y, %x] }   }
+
+pm[#foo 123]
+
+
+:list fn
+
+:r
+
+obj { @next . 123 | @foo . 3112 }
+
+send[obj { @next . 123 | @foo . 3112 }, @foo]
+
+obj { @next { @bar . 123 | @q . 13} }
+
+send[obj { @next { @bar . 123 | @q . 13} }, @next @q]
+
+send[obj { x y. +[%x, %y] }, 123]
+
+send[send[obj { x y. +[%x, %y] }, 123], 512]
+
+send[obj { x y. +[%x, %y] }, 123 512]
+
+send[obj { x y. +[%x, %y] }, 123 512 12]
+
+send[obj { . 123 }]
+
+send[example_tuple_0[], @fst]
+
+
+example_tuple_0[]
+
+#fst[]
+
+
+cut { x = 123 . %x }
+
+cut { x = 123 . move x }
+
+cut { x = 123 . [clone x, %x] }
+
+cut { x = 123 . [clone x, move x] }
+
+cut { x = 123 . [%x, clone x] }
+
+cut { x = 123 . [] }
+
+cut { x = 123 . drop x . [] }
+
+
+
+example_tuple_1[]
+
+:r
+
+range-iter[5, 0]
+
+range-iter-simpler[5, 0]
+
+match ==[1,2] { #T . 123 | #F . 512 }
+
+match #T { #T . 123 | #F . 512 }
+
+:def fn f[x] { %x }
+
+
+obj { @foo[] . 123 }
+
+nats[0]
+
+send[nats[0], @tl @tl @tl @hd]
+
+send[nats[0], @tl @tl @tl @hd]
+
+send[nats[0], @tl @hd]
+
+
+send[incrementing-server[], @inc 5 ]
+
+
+==[5, 0]
+
+incrementing-server[]
+
+range-iter[5, 0]
+
+range-iter-simpler[5, 0]
+
+map-server[incrementing-server[], range-iter[5, 0]]
+
+:r
+
+fib[5, 0]
+
+
+dup_nat[#succ #succ #zero]
+
+
+match #succ #zero { #succ n . %n }
+
+match match #succ #zero { #succ n . #succ %n } { #succ n . #succ %n }
+
+
+// I probably want to add a tuple somewhere, but where?
+
+match #succ #zero { #succ n . %n }
+
+match #succ [123] { #succ [n] . %n }
+
+match [123] { [n] . %n }
+
+// I need a builtin dup  that will clone inductive stuff, but will fail on objects
+
+dup[#cons[5, #nil[]]]
+
+fib[0, 1]
+
+send[fib[0, 1], @next]
+
+let { [x, f] = send[fib[3, 5], @next]  . [%x, send[%f, @next]] }
+
+let { [x, f] = send[fib[3, 5], @next]  . [%x, let { [x, f] = send[%f, @next] . [%x, send[%f, @next]] }] }
+
+
+observe-stream[fib[0, 1], 0]
+
+observe-stream[fib[0, 1], 11]
+
+
+cut { x = 123 . %x }
+
+cut { x = 123, y = 512 . [%y, %x] }
+
+let {. 123 }
+
+let {,,, . 123 }
+
+let { x = 123 . %x }
+
+let { x = 123, y = 512 . [%y, %x] }
+
+
+
+let { x = 123, y = 512 . [cut { a = %x . %a }, cut { b = %y . %b }] }
+
+
+cut { [x, y] = [20, 30] . [%y, %x] }
+
+cut { [[[x]], [y, z]] = [[[20]], [30, 40]] . [%y, %x, %z] }
+
+send[init-server-0[], @inc @inc @reset @add 5]
+
+let { y = 1 . obj { [x0, x1] . +[%x0, +[%x1, %y]] } }
+
+
+send[make-vending-machine[], @replenish #candy]
+
+
+send[make-vending-machine[], @replenish #candy]
+
+make-WORLD[]
+
+user[3,]
+
+
+
+
+# ====Combined====
+
+cargo run repl combined
+
+cargo run repl combined --load program3.pmd.combined
+
+lin 123
+
+lin +[1,2]
+
+lin +[*[3, 4], 1]
+
+cart +(*(3, 4), 1)
+
+cart #foo()
+
+lin #foo[]
+
+cart let { x = 123 . read x }
+
+cart let { (x, y) = (123, 512) . ($y, $x, $x) }
+
+cart let { (x, y) = (123, 512) . $y }
+
+cart let { (((x)), (y, z)) = (((123)), (512, 32)) . ($y, $x, $z, $z, $x) }
+
+lin let { [[[x]], [y, z]] = [[[123]], [512, 32]] . [%y, %x, %z] }
+
+
+cart let { a = 123 . +($a, 1) }
+
+lin let { a = 123 . +[%a, 1] }
+
+
+cart let { x = thunk[123] . $x }
+
+cart let { x = thunk[ +[123, 5] ] . ($x, $x) }
+
+
+lin force(let { x = thunk[ +[123, 5] ] . $x })
+
+lin force(let { x = thunk[ 10 ] . $x })
+
+This crashes with
+AttemptToForceThunkWhileMultiplyOwned(LinearExpression(Int(10)))
+Why?
+Note sure this can be overcome... I think the problem might be that linear_eval takes ownership.
+But we have an Rc, so we can't get at the underlying value safely...
+Forcing should be just like spawning a new process... The code (even linear code) without captured resource is cartesian.
+So why not take it as a read-only reference?
+
+
+lin_eval( cart-env(),  lin-env[],  L::Force(C::Let { arg: C::Thunk(Rc::new(L::Int(10))), var: "x", body: $"x" })   )
+~>
+let cart_val = cart_eval(  cart-env(), &C::Let { arg: C::Thunk(Rc::new(L::Int(10))), var: "x", body: $"x" })
+            ~>  let lin_expr0 = C::Thunk(Rc::new(Lin::Int(10)))
+                let v = cart_eval(cart-env(), lin_expr0)
+                    ~> CVal::Thunk { captured_cartesian_env: cartEmptyEnv, body: linear_expr.clone() } // Ok, this thunk here is cloned. WAT. Ofcourse... the thunk still exists in the cartesian environment...
+               cart_eval(cart-env("x" = v)  , $"x"))
+
+
+
+
+
+cargo run repl combined --load program3.pmd.combined
+
+:list fn
+
+:r
+
+cart fct(5)
+
+lin not[#T[]]
+
+lin pyth(3,4)[]
+
+
+lin id()[5]
+
+lin id[5]
+
+cart id(123)
+
+cart one-two-three()
+
+lin one-two-three
+
+cart huh
+
+cart pyth(3, 4)
+
+lin dup[3]
+
+lin let { x = 123 . %x }
+
+lin let-cart { x = 123 . $x }
+
+lin observe-stream[fib, 10]
+
+cargo build
+
 
 
 # ====Combined====

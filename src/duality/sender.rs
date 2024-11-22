@@ -62,11 +62,11 @@ impl <Code> LazyOrCode<Code> {
 }
 
 #[derive(Debug, Clone)]
-pub struct LazyPatternCode<Code>(Rc<PatternCode0<Code>>);
+pub struct LazyPatternCode<Code>(pub Rc<PatternCode0<Code>>);
 #[derive(Debug)]
-struct PatternCode0<Code> {
-    pattern: Pattern,
-    code: LazyCode<Code>,
+pub struct PatternCode0<Code> {
+    pub pattern: Pattern,
+    pub code: LazyCode<Code>,
 }
 
 impl <Code> LazyPatternCode<Code> {
@@ -99,7 +99,7 @@ impl <Code: fmt::Display> fmt::Display for LazyOrCode<Code> {
         let pairs = &(*self.0.0);
         match pairs.len() {
             0 => write!(f, "")?,
-            1 => write!(f, "{} . {}", pairs[0].0, pairs[0].1)?,
+            1 => write!(f, "{} . {}", pairs[0].0.0, pairs[0].1)?,
             _ => {
                 write!(f, "{} . {} ", pairs[0].0.0, pairs[0].1)?;
                 for (tag, code) in &pairs[1..] {

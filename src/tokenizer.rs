@@ -96,7 +96,7 @@ impl Token {
             VarCloneSymbol => true,
             VarDropSymbol => true,
             ConstructorSymbol => true,
-            MessageSymbol => true,
+            MessageSymbol => false,
             Int(_) => true,
             End => false,
         }

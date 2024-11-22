@@ -125,3 +125,20 @@ fn example-nested-object-1[] { obj {
       | @c1 . 700
       }
 }}
+
+
+fn init-server-0[] { server-0[0] }
+
+fn server-0[state] { obj {
+| @inc . server-0[+[%state, 1]]
+| @dec . server-0[+[%state, -1]]
+| @add x . server-0[+[%state, %x]]
+| @reset . drop state . init-server-0[]
+}}
+
+
+// What's the point of the wrapper then?
+fn html-tag[name, attributes] {
+  #html-tag [%name, %attributes]
+}
+

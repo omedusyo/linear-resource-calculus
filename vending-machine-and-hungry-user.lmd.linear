@@ -1,0 +1,155 @@
+fn make-vending-machine[] { vending-machine[0, #no-candy] }
+
+fn vending-machine[total-profit, candy-bars] { obj {
+| @gimme-candy-bar payment . match %candy-bars {
+  | #no-candy .
+    // #sorry-no-candy [0, vending-machine[+[%total-profit, %payment], #no-candy]] // sucker!
+    #sorry-no-candy [%payment, vending-machine[%total-profit, #no-candy]] // oh no u didn't!
+  | #some-candy [candy, candy-bars] .
+    #here-candy [%candy, vending-machine[+[%total-profit, %payment], %candy-bars]]
+  }
+| @replenish candy .
+  vending-machine[%total-profit, #some-candy [%candy, %candy-bars]]
+}}
+
+//{
+type alias Profit = Int
+type alias Payment = Int 
+
+type Candy = #candy
+
+type CandyBars = Or(
+| #no-candy
+| #some-candy [Candy, CandyBars]
+)
+
+type VendingMachine = Obj(
+| @gimme-candy-bar Payment . Either(
+  | #sorry-no-candy [Payment, VendingMachine]
+  | #here-candy [Candy, VendingMachine]
+  )
+| @replenish Candy . VendingMachine
+)
+}
+
+// fn vending-machine[total-profit: Profit, candy-bars: CandyBars]: VendingMachine
+
+fn vending-machine[total-profit, candy-bars] { obj {
+| @gimme-candy-bar payment . match %candy-bars {
+  | #no-candy .
+    // #sorry-no-candy [0, vending-machine[+[%total-profit, %payment], #no-candy]] // sucker!
+    #sorry-no-candy [%payment, vending-machine[%total-profit, #no-candy]]
+  | #some-candy [candy, candy-bars] .
+    #here-candy [%candy, vending-machine[+[%total-profit, %payment], %candy-bars]]
+  }
+| @replenish candy .
+  vending-machine[%total-profit, #some-candy [%candy, %candy-bars]]
+}}
+
+
+fn vending-machine-v2[total-profit, candy-bars, slings-and-arrows-of-outrageous-fortune] { obj {
+| @gimme-candy-bar payment . 
+  let { [yo-destiny, slings-and-arrows-of-outrageous-fortune] = send[%slings-and-arrows-of-outrageous-fortune, @roll-the-dice] .
+    match %yo-destiny {
+    | #sea-of-troubles .
+      #broke broke-vending-machine[%payment, %total-profit, %candy-bars, %slings-and-arrows-of-outrageous-fortune] // ye gods!
+    | #life-is-good .
+      match %candy-bars {
+      | #no-candy .
+        #sorry-no-candy [0, vending-machine-v2[+[%total-profit, %payment], #no-candy, %slings-and-arrows-of-outrageous-fortune]] // sucker!
+      | #some-candy [candy, candy-bars] .
+        #here-candy [%candy, vending-machine-v2[+[%total-profit, %payment], %candy-bars, %slings-and-arrows-of-outrageous-fortune]]
+      }
+    }
+  }
+| @replenish candy .
+  vending-machine-v2[%total-profit, #some-candy [%candy, %candy-bars]]
+}}
+
+fn broke-vending-machine[hostage-payment, total-profit, candy-bars, slings-and-arrows-of-outrageous-fortune] { obj {
+| @gimme-candy-bar payment . 
+  #broke broke-vending-machine[+[%hostage-payment, %payment], %total-profit, %candy-bars, %slings-and-arrows-of-outrageous-fortune]
+| @fix .
+  let { [for-mechanic, for-myself] = split[%hostage-payment] .
+    #fixed [%for-mechanic, vending-machine-v2[+[%total-profit, %for-myself], %candy-bars, %slings-and-arrows-of-outrageous-fortune]]
+  }
+}}
+
+
+//========User=========
+fn Wendy[WORLD] {
+  user[50, #no-candy, #satisfaction 3, %WORLD]
+}
+
+fn user[life-savings, candy-bars, satisfaction, WORLD] { obj {
+| @live-life . 
+  match ==[clone life-savings, 0] {
+  | #T .
+    depressed-candy-hungry-user[%life-savings, %candy-bars, %satisfaction, %WORLD]
+  | #F .
+    candy-hungry-user[%life-savings, %candy-bars, %satisfaction, %WORLD]
+  }
+}}
+
+fn candy-hungry-user[life-savings, candy-bars, satisfaction, WORLD] { obj {
+| @live-life . match %candy-bars {
+  | #no-candy .
+    match send[%WORLD, @request-access-to-vending-machine] {
+    | #access-granted [vending-machine, WORLD] . 
+      candy-hungry-user-with-access-to-vending-machine[%life-savings, #no-candy, %satisfaction, %vending-machine, %WORLD]
+    | #machine-in-use WORLD .
+      depressed-candy-hungry-user[%life-savings, #no-candy, %satisfaction, %WORLD]
+    }
+  | #some-candy [candy, candy-bars] .
+    user[%life-savings, %candy-bars, satisfy[%satisfaction, eat-candy[%candy]], %WORLD]
+  }
+}}
+
+fn eat-candy[candy] { match %candy {
+| #candy . #satisfaction 1
+}}
+
+fn satisfy[satisfaction0, satisfaction1] { match %satisfaction0 {
+| #satisfaction x . match %satisfaction1 {
+| #satisfaction y . #satisfcation +[%x, %y]
+}}}
+
+
+//{ Recall the type of VendingMachine
+
+type VendingMachine = Obj(
+| @gimme-candy-bar Payment . Either(
+  | #sorry-no-candy [Payment, VendingMachine]
+  | #here-candy [Candy, VendingMachine]
+  )
+| @replenish Candy . VendingMachine
+)
+
+}
+
+fn candy-hungry-user-with-access-to-vending-machine[life-savings, candy-bars, satisfaction, vending-machine, WORLD] { obj {
+| @live-life .
+  match send[%vending-machine, @gimme-candy-bar %life-savings] {
+  | #sorry-no-candy [life-savings, vending-machine] .
+    depressed-candy-hungry-user[%life-savings, %candy-bars, %satisfaction, send[%WORLD, @release %vending-machine]]
+  | #here-candy [candy, vending-machine] .
+    candy-hungry-user[0, #some-candy [%candy, %candy-bars], %satisfaction, send[%WORLD, @release %vending-machine]]
+  }
+}}
+
+fn depressed-candy-hungry-user[balance, candy-bars, satisfaction, WORLD] { drop satisfaction . obj {
+| @live-life . depressed-candy-hungry-user[%balance, %candy-bars, #satisfaction 0, %WORLD]
+}}
+
+
+// ====The WORLD!====
+fn make-WORLD[] { let {
+, vending-machine = send[make-vending-machine[], @replenish #candy @replenish #candy @replenish #candy]
+. WORLD-with-vending-machine[%vending-machine]
+}}
+
+fn WORLD-with-vending-machine[vending-machine] { obj {
+| @request-access-to-vending-machine . #access-granted [%vending-machine, obj {
+  | @release vending-machine . WORLD-with-vending-machine[%vending-machine]
+  }]
+}}

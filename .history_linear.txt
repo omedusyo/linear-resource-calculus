@@ -1,37 +1,4 @@
 #V2
-send[nats[0], @hd]
-send[nats[0], @tl @tl]
-send[nats[0], @tl @hd]
-obj { @tl . obj { @hd . 123 }}
-send[obj { @tl . obj { @hd . 123 }}, @tl]
-send[send[obj { @tl . obj { @hd . 123 }}, @tl], @hd]
-send[obj { @tl . obj { @hd . 123 }}, @tl @hd]
-obj { @foo[] . 123 }
-pm[#foo 123]
-obj { @next . 123 | @foo . 3112 }
-send[obj { @next . 123 | @foo . 3112 }, @foo]
-send[obj { @next . 123 | @foo . 3112 }, @next]
-obj { @next { @bar . 123 | @q . 13} }
-send[obj { @next . 123 | @foo . 3112 }, @foo]
-send[obj { @next { @bar . 123 | @q . 13} }, @next @bar]
-send[obj { @next { @bar . 123 | @q . 13} }, @next @q]
-send[obj { @next { @bar . 123 | @q . 13} }, @next @bar]
-send[send[obj { x y. +[%x, %y] }, 123], 512]
-send[obj { x y. +[%x, %y] }, 123]
-obj { . 123 }
-send[nats[0], @tl]
-send[send[nats[0], @tl], @tl]
-send[nats[0], @tl @tl]
-send[fib[0, 1], @next]
-let { [x, f] = send[fib[3, 5], @next]  . [%x, send[%f, @next]] }
-let { [x, f] = send[fib[3, 5], @next]  . [%x, let { [x, f] = send[%f, @next] . [%x, send[%f, @next]] }] }
-cut { x = 123 . %x }
-cut { x = 123, y = 512 . [%y, %x] }
-let { x = 123 . %x }
-let { x = 123, y = 512 . [%y, %x] }
-let { x = 123, y = 512 . [cut { a = %x . %a }, cut { b = %y . %b }] }
-cut { [x, y] = [20, 30] . [%y, %x] }
-cut { [[[x]], [y, z]] = [[[20]], [30, 40]] . [%y, %x, %z] }
 match #foo #bar [1,[50, 2]] { #foo #bar [x, [y, z]] . [%y, %x, %z] }
 match #a #a1 [3, 4] { #a { #a0 . 123 | #a1 [x, y]. [%y, %x] }   }
 pm[#foo 123]
@@ -99,3 +66,36 @@ let { x = 123, y = 512 . [%y, %x] }
 let { x = 123, y = 512 . [cut { a = %x . %a }, cut { b = %y . %b }] }
 cut { [x, y] = [20, 30] . [%y, %x] }
 cut { [[[x]], [y, z]] = [[[20]], [30, 40]] . [%y, %x, %z] }
+init-server-0[]
+send[init-server-0[], @inc]
+send[init-server-0[], @inc @inc]
+send[init-server-0[], @inc @inc @dec]
+send[init-server-0[], @inc @inc @reset]
+send[init-server-0[], @inc @inc @reset @add 5]
+incrementing-server[]
+fib[5, 0]
+fib[0, 1]
+obj { x . +[%x, 1] }
+let { y = 1 . obj { x . +[%x, %y] } }
+let { y = 1 . obj { [x0, x1] . +[%x0, +[%x1, %y]] } }
+fib[0, 1]
+nats[0]
+send[incrementing-server[], @inc 5 ]
+let { y = 1 . obj { [x0, x1] . +[%x0, +[%x1, %y]] } }
+let { y = 1 . obj { [] . +[%x0, +[%x1, %y]] } }
+let { y = 1 . obj { [x0, x1] . +[%x0, +[%x1, %y]] } }
+send[init-server-0[], @inc @inc @reset @add 5]
+make-vending-machine[]
+send[make-vending-machine[], @gimme-candy-bar 10]
+send[make-vending-machine[], @replenish #candy]
+make-vending-machine[]
+send[make-vending-machine[], @replenish #candy]
+make-WORLD[]
+ake-user[make-WORLD[]]
+make-user[make-WORLD[]]
+send[make-user[make-WORLD[]], @live-life]
+send[make-user[make-WORLD[]], @live-life @life-life]
+send[make-user[make-WORLD[]], @live-life @live-life]
+send[make-user[make-WORLD[]], @live-life @live-life @live-life]
+send[make-user[make-WORLD[]], @live-life @live-life @live-life @live-life]
+send[make-user[make-WORLD[]], @live-life @live-life @live-life @live-life @live-life]

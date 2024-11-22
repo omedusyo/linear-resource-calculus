@@ -870,8 +870,42 @@ impl fmt::Display for Value {
                 }
                 write!(f, "]")
             },
-            Closure(closure) => write!(f, "obj {{ {}@code }}", closure.env),
+            Closure(closure) => {
+                write!(f, "obj {{ {} . ", closure.env)?;
+                display_closure_code(f, &closure.code)?;
+                write!(f, " }}",)?;
+                Ok(())
+            },
         }
+    }
+}
+
+fn display_closure_code(f: &mut fmt::Formatter, code: &LazyCode<Expression>) -> fmt::Result {
+    use LazyCode::*;
+    match code {
+        Code(_code) => {
+            write!(f, "...")
+        },
+        Or(or_code) => {
+            let xs = &(*or_code.0).0;
+            match xs.len() {
+                0 => write!(f, " . ..."),
+                1 => write!(f, "@{} . ..", xs[0].0.0),
+                _ => {
+                    write!(f, "@{}", xs[0].0.0)?;
+                    for (tag, _) in &xs[1..] {
+                        write!(f, " | @{}", tag.0)?
+                    }
+                    write!(f, " . ...")
+                }
+            }
+        },
+        Pattern(pattern_code) => {
+            let pattern = &(*pattern_code.0).pattern;
+            write!(f, "{}", pattern)?;
+            write!(f, " . ...")?;
+            Ok(())
+        },
     }
 }
 
@@ -990,7 +1024,13 @@ impl fmt::Display for Env {
         use Env0::*;
         match &(*self.0) {
             Empty => write!(f, ""),
-            Push {  var, value, parent } => write!(f, "{} = {} . {}", var.0, value, parent),
+            Push {  var, value, parent } => {
+                if matches!(&(*parent.0), Empty) {
+                    write!(f, "{} = {}", var.0, value)
+                } else {
+                    write!(f, "{}, {} = {}", parent, var.0, value)
+                }
+            },
         }
     }
 }
