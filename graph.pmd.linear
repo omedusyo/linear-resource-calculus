@@ -17,9 +17,7 @@ fn graph-d[] { obj {
 | @to-e . graph-e[]
 }}
 
-fn graph-e[] { obj {
-| @stuck . graph-e[] // for some reason `obj {}` is a syntax error, need to fix that.
-}}
+fn graph-e[] { obj {} }
 
 
 

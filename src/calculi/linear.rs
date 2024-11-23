@@ -298,6 +298,7 @@ fn parse_lazy_code(input: TokenStream) -> IResult0<LazyCode<Expression>> {
 // [x, y, z] . body
 // x . body
 fn parse_lazy_inner_code(input: TokenStream) -> IResult0<LazyCode<Expression>> {
+
     use Token::*;
     let (input_if_commited, token0) = anytoken(input)?;
     match token0 {
@@ -320,6 +321,10 @@ fn parse_lazy_inner_code(input: TokenStream) -> IResult0<LazyCode<Expression>> {
         MessageSymbol | OrSeparator => { // do not commit
             let (input, or_code) = parse_lazy_or_code(input)?;
             Ok((input, LazyCode::or(or_code)))
+        },
+        CloseCurly => { // do not commit
+            // this is empty object
+            Ok((input, LazyCode::empty_or()))
         },
         _ => return Err(nom::Err::Error(nom::error::Error { input: input.input, code: nom::error::ErrorKind::Alt })),
     }
@@ -853,60 +858,60 @@ impl PatternMatchableValue for Value {
 }
 
 impl fmt::Display for Value {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use Value::*;
-        match self {
-            Int(x) => write!(f, "{}", x),
-            Tag(tag) => write!(f, "{}", tag),
-            Tagged(tag, val) => write!(f, "{} {}", tag, val),
-            Tuple(values) => {
-                write!(f, "[")?;
-                let mut values = (&**values).iter().peekable();
-                while let Some(val) = values.next() {
-                    match values.peek() {
-                        Some(_) => write!(f, "{}, ", val)?,
-                        None => write!(f, "{}", val)?,
-                    }
-                }
-                write!(f, "]")
-            },
-            Closure(closure) => {
-                write!(f, "obj {{ {} . ", closure.env)?;
-                display_closure_code(f, &closure.code)?;
-                write!(f, " }}",)?;
-                Ok(())
-            },
-        }
-    }
-}
-
-fn display_closure_code(f: &mut fmt::Formatter, code: &LazyCode<Expression>) -> fmt::Result {
-    use LazyCode::*;
-    match code {
-        Code(_code) => {
-            write!(f, "...")
-        },
-        Or(or_code) => {
-            let xs = &(*or_code.0).0;
-            match xs.len() {
-                0 => write!(f, " . ..."),
-                1 => write!(f, "@{} . ..", xs[0].0.0),
-                _ => {
-                    write!(f, "@{}", xs[0].0.0)?;
-                    for (tag, _) in &xs[1..] {
-                        write!(f, " | @{}", tag.0)?
-                    }
-                    write!(f, " . ...")
+fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    use Value::*;
+    match self {
+        Int(x) => write!(f, "{}", x),
+        Tag(tag) => write!(f, "{}", tag),
+        Tagged(tag, val) => write!(f, "{} {}", tag, val),
+        Tuple(values) => {
+            write!(f, "[")?;
+            let mut values = (&**values).iter().peekable();
+            while let Some(val) = values.next() {
+                match values.peek() {
+                    Some(_) => write!(f, "{}, ", val)?,
+                    None => write!(f, "{}", val)?,
                 }
             }
+            write!(f, "]")
         },
-        Pattern(pattern_code) => {
-            let pattern = &(*pattern_code.0).pattern;
-            write!(f, "{}", pattern)?;
-            write!(f, " . ...")?;
+        Closure(closure) => {
+            write!(f, "obj {{ {} . ", closure.env)?;
+            display_closure_code(f, &closure.code)?;
+            write!(f, " }}",)?;
             Ok(())
         },
     }
+}
+}
+
+fn display_closure_code(f: &mut fmt::Formatter, code: &LazyCode<Expression>) -> fmt::Result {
+use LazyCode::*;
+match code {
+    Code(_code) => {
+        write!(f, "...")
+    },
+    Or(or_code) => {
+        let xs = &(*or_code.0).0;
+        match xs.len() {
+            0 => write!(f, ""),
+            1 => write!(f, "@{} . ..", xs[0].0.0),
+            _ => {
+                write!(f, "@{}", xs[0].0.0)?;
+                for (tag, _) in &xs[1..] {
+                    write!(f, " | @{}", tag.0)?
+                }
+                write!(f, " . ...")
+            }
+        }
+    },
+    Pattern(pattern_code) => {
+        let pattern = &(*pattern_code.0).pattern;
+        write!(f, "{}", pattern)?;
+        write!(f, " . ...")?;
+        Ok(())
+    },
+}
 }
 
 impl fmt::Display for Expression {
@@ -1021,17 +1026,23 @@ impl Env {
 
 impl fmt::Display for Env {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use Env0::*;
-        match &(*self.0) {
-            Empty => write!(f, ""),
-            Push {  var, value, parent } => {
-                if matches!(&(*parent.0), Empty) {
-                    write!(f, "{} = {}", var.0, value)
-                } else {
-                    write!(f, "{}, {} = {}", parent, var.0, value)
-                }
-            },
+        fn fmt_loop(env: &Env, f: &mut fmt::Formatter) -> fmt::Result {
+            use Env0::*;
+            match &(*env.0) {
+                Empty => write!(f, ""),
+                Push {  var, value, parent } => {
+                    if matches!(&(*parent.0), Empty) {
+                        write!(f, "{} = {}", var.0, value)
+                    } else {
+                        write!(f, "{}, {} = {}", parent, var.0, value)
+                    }
+                },
+            }
         }
+        write!(f, "[")?;
+        fmt_loop(self, f)?;
+        write!(f, "]")?;
+        Ok(())
     }
 }
 

@@ -33,6 +33,9 @@ impl <Code> LazyCode<Code> {
     pub fn tagged(tag: Tag, code: LazyCode<Code>) -> Self {
         Self::Or(LazyOrCode::singleton(tag, code))
     }
+    pub fn empty_or() -> Self {
+        Self::Or(LazyOrCode::empty())
+    }
     pub fn pattern(pattern: Pattern, code: LazyCode<Code>) -> Self {
         Self::Pattern(LazyPatternCode::new(pattern, code))
     }
@@ -58,6 +61,9 @@ impl <Code> LazyOrCode<Code> {
     }
     fn singleton(tag: Tag, code: LazyCode<Code>) -> Self {
         Self::new(vec![(tag, code)])
+    }
+    fn empty() -> Self {
+        Self::new(vec![])
     }
 }
 
