@@ -11,8 +11,6 @@
 * example programs:
   - cartesian/linear lambda calc interpreters
   - suspendable/resumable parser objects (e.g. for when you get a stream of tokens from user, and you don't get all of the input at once)
-* BUG
-  The input `123 //` fails with unexpected EOF
 
 * Programs to try to write:
   Stack, Queue objects, or some other classic ephemeral data-structure/object

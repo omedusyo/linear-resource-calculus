@@ -1,3 +1,4 @@
+// ====Vending Machine====
 fn make-vending-machine[] { vending-machine[0, #no-candy] }
 
 fn vending-machine[total-profit, candy-bars] { obj {

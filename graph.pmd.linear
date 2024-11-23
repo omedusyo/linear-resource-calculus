@@ -1,3 +1,4 @@
+// ===Ordered Graph (Multigraph)===
 fn graph-a[] { obj {
 | @to-b . graph-b[]
 | @to-c . graph-c[]

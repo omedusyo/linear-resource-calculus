@@ -117,7 +117,8 @@ fn is_forbiden_char(c: char) -> bool {
 fn comment(input: &str) -> IResult<&str, ()> {
     let (input, _) = char('/')(input)?;
     let (mut input, _) = char('/')(input)?;
-    let (input_if_bracesopen_brace_commited, c) = peek(anychar)(input)?;
+    let (input_if_bracesopen_brace_commited, maybe_char) = peek_char_or_eof(input)?;
+    let Some(c) = maybe_char else { return Ok(("", ())) };
     match c {
         '{' => { // The comment is `//{...}`
             input = input_if_bracesopen_brace_commited;
@@ -169,6 +170,14 @@ fn test_comment() {
     let input = "//foo\nbar";
     let result = comment(input);
     assert!(matches!(result, Ok(("\nbar", _))));
+
+    let input = "//    ";
+    let result = comment(input);
+    assert!(matches!(result, Ok(("", _))));
+
+    let input = "//";
+    let result = comment(input);
+    assert!(matches!(result, Ok(("", _))));
 
     let input = "//{foo} bar";
     let result = comment(input);
@@ -397,7 +406,15 @@ pub struct TokenStream<'a> {
 
 impl <'a> TokenStream<'a> {
     pub fn new(input: &'a str) -> Self {
-        Self { input }
+        match whitespace(input) {
+            Ok((input, ())) => {
+                Self { input } 
+            },
+            Err(_err) => {
+                // eof
+                Self { input }
+            },
+        }
     }
 
     pub fn next(mut self) -> IResult0<'a, Token> {
