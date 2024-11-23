@@ -39,7 +39,3 @@
   Processes take up space somewhere somehow, and I bet Par is the construct for
   placing two processes in two non-overlapping spatial locations so that ofcourse these processes shall execute independently!
 * Dining Philosophers
-
-
-* BUG
-  The input `obj {}` i.e. the unit of the & is not being parsed.
