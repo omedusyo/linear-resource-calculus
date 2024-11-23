@@ -1,0 +1,42 @@
+fn graph-a[] { obj {
+| @to-b . graph-b[]
+| @to-c . graph-c[]
+}}
+
+fn graph-b[] { obj {
+| @to-c . graph-c[]
+}}
+
+fn graph-c[] { obj {
+| @to-d . graph-d[]
+}}
+
+fn graph-d[] { obj {
+| @to-b . graph-b[]
+| @to-e . graph-e[]
+}}
+
+fn graph-e[] { obj {
+| @stuck . graph-e[] // for some reason `obj {}` is a syntax error, need to fix that.
+}}
+
+
+
+
+// ====Unorderd Graph====
+
+fn edge-a-b[] { obj { @a . node-a[] | @b . node-b[] }}
+fn edge-b-c[] { obj { @b . node-b[] | @c . node-c[] }}
+fn edge-c-d[] { obj { @c . node-c[] | @d . node-d[] }}
+fn edge-d-a[] { obj { @d . node-d[] | @a . node-a[] }}
+
+fn edge-s-a[] { obj { @s . node-s[] | @a . node-a[] }}
+fn edge-s-b[] { obj { @s . node-s[] | @b . node-b[] }}
+fn edge-s-c[] { obj { @s . node-s[] | @c . node-c[] }}
+fn edge-s-d[] { obj { @s . node-s[] | @d . node-d[] }}
+
+fn node-a[] { obj { @b . edge-a-b[] | @s . edge-s-a[] | @d . edge-d-a[] } }
+fn node-b[] { obj { @a . edge-a-b[] | @s . edge-s-b[] | @c . edge-b-c[] } }
+fn node-c[] { obj { @b . edge-b-c[] | @s . edge-s-c[] | @d . edge-c-d[] } }
+fn node-d[] { obj { @a . edge-d-a[] | @s . edge-s-d[] | @c . edge-b-c[] } }
+

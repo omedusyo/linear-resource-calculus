@@ -95,3 +95,12 @@
   While sending a static message to an object... there's some sort of a reversal (from leafs to roots?).
   This distinction is present in parsing...
     Bottom-Up vs Top-Down
+
+* Code is not special! It is something that can be computed on the fly. It can be subject to flux!
+  How do you type it? `Code([A, B, C] -> D)`? Is it different than just a thunk? Seems so...
+  How would an expression that produces an element of such a type look like?
+  Need to somehow reify AST of the language. I bet there will be interesting issues
+  with variable bindings. But maybe not... maybe the AST-producing expressions will be combinator-like.
+  This should also give us a way to accept external code and modify our code environment.
+  Codebase as actual database... but this database could be reified too and be subject to flux.
+

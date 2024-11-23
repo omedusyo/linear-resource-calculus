@@ -13,3 +13,35 @@
   - suspendable/resumable parser objects (e.g. for when you get a stream of tokens from user, and you don't get all of the input at once)
 * BUG
   The input `123 //` fails with unexpected EOF
+
+* Programs to try to write:
+  Stack, Queue objects, or some other classic ephemeral data-structure/object
+  Done. Directed Multigraphs, Undirected Multigraphs
+  A cyclic slide-show of images.
+  Presheaves: What if we forced for every value in our language to support a special @next message?
+    Would this give us a natural semantics for Dynamic Sets (monoid (Nat,+,0)-Actions on sets)
+  Maximum Flow
+  top-down parsers (basically nothing new, parsing combinators?)
+  bottom-up parsers (this will be very interesting!)
+  Turing machine simulator, CPU simulator, logic gates, Karel, Turtle Geomtry
+  Game of life or various other von Neumann type of things.
+  Connection Machine, GPU, FPGA, circuits
+  Stream processing
+  Discrete Event Dynamic System
+  Petri Net
+  Actors
+  Real numbers
+  Continuous Dynamic Systems
+  Markov chains, stochastic dynamic systems.
+* In the REPL introduce ability to manipulate environment.
+* Introduce a TODO expression, that would somehow at runtime prompt the programmer
+  to input the code that should execute next. Live programming!
+* Concurrency/Parallelism is not just about vaguely/nebulously/independently executing processes.
+  You can also have a much more concrete sense of concurrent processes.
+  Processes take up space somewhere somehow, and I bet Par is the construct for
+  placing two processes in two non-overlapping spatial locations so that ofcourse these processes shall execute independently!
+* Dining Philosophers
+
+
+* BUG
+  The input `obj {}` i.e. the unit of the & is not being parsed.

@@ -676,7 +676,9 @@ send[make-vending-machine[], @replenish #candy]
 
 make-WORLD[]
 
-user[3,]
+user[3, #no-candy, satisfaction, WORLD]
+
+send[Wendy[make-WORLD[]], @live-life @live-life @live-life @live-life @live-life]
 
 
 

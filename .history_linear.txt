@@ -1,12 +1,4 @@
 #V2
-match #foo #bar [1,[50, 2]] { #foo #bar [x, [y, z]] . [%y, %x, %z] }
-match #a #a1 [3, 4] { #a { #a0 . 123 | #a1 [x, y]. [%y, %x] }   }
-pm[#foo 123]
-match ==[1,2] { #T . 123 | #F . 512 }
-match #T { #T . 123 | #F . 512 }
-send[obj { @next { @bar . 123 | @q . 13} }, @next @bar]
-send[obj { @next { @bar . 123 | @q . 13} }, @next @q]
-match #T { #T . 123 | #F . 512 }
 match ==[1,2] { #T . 123 | #F . 512 }
 range-iter-simpler[5, 0]
 range-iter[5, 0]
@@ -99,3 +91,11 @@ send[make-user[make-WORLD[]], @live-life @live-life]
 send[make-user[make-WORLD[]], @live-life @live-life @live-life]
 send[make-user[make-WORLD[]], @live-life @live-life @live-life @live-life]
 send[make-user[make-WORLD[]], @live-life @live-life @live-life @live-life @live-life]
+send[Wendy[make-WORLD[]], @live-life @live-life @live-life @live-life @live-life]
+obj { @a . 123 }
+graph-a[]
+send[graph-a[], @to-b]
+send[graph-a[], @to-b @to-c]
+send[graph-a[], @to-b @to-c @to-d]
+send[graph-a[], @to-b @to-c @to-d @to-e]
+send[graph-a[], @to-b @to-c @to-d @to-e @stuck]
