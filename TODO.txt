@@ -8,12 +8,11 @@
   Oh wait, for objects that capture stuff you would basically still need something
   like an environment.
 
-* example programs:
-  - cartesian/linear lambda calc interpreters
-  - suspendable/resumable parser objects (e.g. for when you get a stream of tokens from user, and you don't get all of the input at once)
+* Move primitive operations into its own module.
 
 * Programs to try to write:
-  Stack, Queue objects, or some other classic ephemeral data-structure/object
+  DONE: Stack
+  Queue objects, or some other classic ephemeral data-structure/object
   Done. Directed Multigraphs, Undirected Multigraphs
   A cyclic slide-show of images.
   Presheaves: What if we forced for every value in our language to support a special @next message?
@@ -21,6 +20,8 @@
   Maximum Flow
   top-down parsers (basically nothing new, parsing combinators?)
   bottom-up parsers (this will be very interesting!)
+  suspendable/resumable parser objects (e.g. for when you get a stream of tokens from user, and you don't get all of the input at once)
+  cartesian/linear lambda calc interpreters
   Turing machine simulator, CPU simulator, logic gates, Karel, Turtle Geomtry
   Game of life or various other von Neumann type of things.
   Connection Machine, GPU, FPGA, circuits

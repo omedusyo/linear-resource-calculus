@@ -20,48 +20,6 @@ use crate::duality::{
 };
 
 // ===parser===
-fn identifier_to_operation_code(str: &str) -> Option<OperationCode> {
-    match str {
-        "+" => Some(OperationCode::Add),
-        "*" => Some(OperationCode::Mul),
-        "sub" => Some(OperationCode::Sub),
-        "==" => Some(OperationCode::Eq),
-        "dup" => Some(OperationCode::Clone),
-        "discard" => Some(OperationCode::Discard),
-        _ => None
-    }
-}
-
-fn parse_operator_arguments(op_code: OperationCode, input: TokenStream) -> IResult0<Expression> {
-    use OperationCode::*;
-    match op_code {
-        Add => {
-            let (input, (e0, e1)) = parse_arg_list2(input)?;
-            Ok((input, Expression::operation_application2(op_code, e0, e1)))
-        },
-        Sub => {
-            let (input, (e0, e1)) = parse_arg_list2(input)?;
-            Ok((input, Expression::operation_application2(op_code, e0, e1)))
-        },
-        Mul => {
-            let (input, (e0, e1)) = parse_arg_list2(input)?;
-            Ok((input, Expression::operation_application2(op_code, e0, e1)))
-        },
-        Eq => {
-            let (input, (e0, e1)) = parse_arg_list2(input)?;
-            Ok((input, Expression::operation_application2(op_code, e0, e1)))
-        },
-        Clone => {
-            let (input, e0) = parse_arg_list1(input)?;
-            Ok((input, Expression::operation_application1(op_code, e0)))
-        },
-        Discard => {
-            let (input, e0) = parse_arg_list1(input)?;
-            Ok((input, Expression::operation_application1(op_code, e0)))
-        },
-    }
-}
-
 fn parse_arg_list2(input: TokenStream) -> IResult0<(Expression, Expression)> {
     // "[e0, e1]  "
     let (input, _) = token(TokenType::OpenBracket)(input)?;
@@ -115,7 +73,7 @@ pub fn parse_program(input: TokenStream) -> IResult0<Program> {
     let (input, definitions) = vector(parse_function_definition)(input)?;
     let mut program = Program::new();
     for definition in definitions {
-        let name = definition.name.clone();
+        let name = definition.name().clone();
         program.function_definitions.insert(name.clone(), definition);
         program.function_definitions_ordering.push(name);
     }
@@ -128,7 +86,7 @@ pub fn parse_function_definition(input: TokenStream) -> IResult0<FunctionDefinit
     let (input, parameters) = brackets(parameter_vector)(input)?;
 
     let (input, body) = curly_braces(parse_expression)(input)?;
-    Ok((input, FunctionDefinition { name: FunctionName::new(function_name_str), parameters, body }))
+    Ok((input, FunctionDefinition::User( UserFunctionDefinition { name: FunctionName::new(function_name_str), parameters, body })))
 }
 
 // =====Parsing Patterns========
@@ -579,24 +537,20 @@ pub fn parse_expression(input: TokenStream) -> IResult0<Expression> {
                         _ => todo!()
                     }
                 },
-                s => match identifier_to_operation_code(s) {
-                    Some(op_code) => 
-                        parse_operator_arguments(op_code, input),
-                    None => {
-                        let (input, token_match) = peek_token(TokenType::OpenBracket)(input)?;
-                        match token_match {
-                            Some(_) => {
-                                // Here we have a function call
-                                let (input, arguments) = brackets(expression_vector)(input)?;
-                                Ok((input, Expression::call(FunctionName::new(identifier), arguments)))
-                            },
-                            None => {
-                                // TODO: Check if this is a function application
-                                // I need to peek if the next token is an open paren
-                                Err(nom::Err::Error(nom::error::Error { input: input.input, code: nom::error::ErrorKind::Alt }))
-                            }
+                _ => {
+                    let (input, token_match) = peek_token(TokenType::OpenBracket)(input)?;
+                    match token_match {
+                        Some(_) => {
+                            // Here we have a function call
+                            let (input, arguments) = brackets(expression_vector)(input)?;
+                            Ok((input, Expression::call(FunctionName::new(identifier), arguments)))
+                        },
+                        None => {
+                            // TODO: Check if this is a function application
+                            // I need to peek if the next token is an open paren
+                            Err(nom::Err::Error(nom::error::Error { input: input.input, code: nom::error::ErrorKind::Alt }))
                         }
-                    },
+                    }
                 },
             }
         },
@@ -612,22 +566,133 @@ pub struct Program {
 }
 
 #[derive(Debug)]
-pub struct FunctionDefinition {
+pub enum FunctionDefinition {
+    User(UserFunctionDefinition),
+    Primitive(PrimitiveFunctionDefinition),
+}
+
+impl FunctionDefinition {
+    fn user(fn_: UserFunctionDefinition) -> Self {
+        Self::User(fn_)
+    }
+
+    fn name(&self) -> &FunctionName {
+        use FunctionDefinition::*;
+        match self {
+            User(fn_) => &fn_.name,
+            Primitive(fn_) => &fn_.name,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct UserFunctionDefinition {
     name: FunctionName,
     parameters: Vec<VariableName>,
     body: Expression,
 }
 
+pub struct PrimitiveFunctionDefinition {
+    name: FunctionName,
+    // TODO: Allow multi arity
+    number_of_parameters: usize,
+    fn_: Rc<dyn Fn(Vec<Value>) -> Value>,
+}
+
+impl fmt::Debug for PrimitiveFunctionDefinition {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PrimitiveFunctionDefinition")
+         .field("name", &self.name)
+         .field("number_of_parameters", &self.number_of_parameters)
+         .field("fn_", &"...")
+         .finish()
+    }
+}
+
 impl Program {
     pub fn new() -> Self {
+        use FunctionDefinition::*;
+        let mut function_definitions = HashMap::new();
+
+        let name = FunctionName::new("+".to_string());
+        function_definitions.insert(name.clone(),
+            Primitive(PrimitiveFunctionDefinition {
+                name,
+                number_of_parameters: 2,
+                fn_: Rc::new(|args: Vec<Value>| -> Value {
+                    let mut iter = args.into_iter();
+                    let x = iter.next().unwrap();
+                    let y = iter.next().unwrap();
+                    match (x, y) {
+                        (Value::Int(x), Value::Int(y)) => {
+                            Value::Int(x + y)
+                        }
+                        _ => todo!()
+                    }
+                }),
+            }),
+        );
+
+        let name = FunctionName::new("-".to_string());
+        function_definitions.insert(name.clone(),
+            Primitive(PrimitiveFunctionDefinition {
+                name,
+                number_of_parameters: 2,
+                fn_: Rc::new(|args: Vec<Value>| -> Value {
+                    let mut iter = args.into_iter();
+                    let x = iter.next().unwrap();
+                    let y = iter.next().unwrap();
+                    match (x, y) {
+                        (Value::Int(x), Value::Int(y)) => {
+                            Value::Int(x - y)
+                        }
+                        _ => todo!()
+                    }
+                }),
+            }),
+        );
+
+        let name = FunctionName::new("*".to_string());
+        function_definitions.insert(name.clone(),
+            Primitive(PrimitiveFunctionDefinition {
+                name,
+                number_of_parameters: 2,
+                fn_: Rc::new(|args: Vec<Value>| -> Value {
+                    let mut iter = args.into_iter();
+                    let x = iter.next().unwrap();
+                    let y = iter.next().unwrap();
+                    match (x, y) {
+                        (Value::Int(x), Value::Int(y)) => {
+                            Value::Int(x * y)
+                        }
+                        _ => todo!()
+                    }
+                }),
+            }),
+        );
+
+        let name = FunctionName::new("==".to_string());
+        function_definitions.insert(name.clone(),
+            Primitive(PrimitiveFunctionDefinition {
+                name,
+                number_of_parameters: 2,
+                fn_: Rc::new(|args: Vec<Value>| -> Value {
+                    let mut iter = args.into_iter();
+                    let x = iter.next().unwrap();
+                    let y = iter.next().unwrap();
+                    x.eq_consuming(y)
+                }),
+            }),
+        );
+
         Self {
-            function_definitions: HashMap::new(),
+            function_definitions,
             function_definitions_ordering: vec![],
         }
     }
 
     pub fn update_function_definition(&mut self, fn_def: FunctionDefinition) {
-        let fn_name = fn_def.name.clone();
+        let fn_name = fn_def.name().clone();
         self.function_definitions.insert(fn_name.clone(), fn_def);
 
         // This is a bit insane. But function redefinitions don't occur frequently.
@@ -652,8 +717,6 @@ pub struct Expression(pub Rc<Expression0>);
 #[derive(Debug)]
 pub enum Expression0 {
     Int(i32),
-    OperationApplication1(OperationCode, Expression),
-    OperationApplication2(OperationCode, Expression, Expression),
 
     Call(FunctionName, Vec<Expression>),
 
@@ -672,6 +735,15 @@ pub enum Expression0 {
 
     Object { code: LazyCode<Expression> },
     Send(Expression, Msg),
+}
+
+#[derive(Debug)]
+enum Literals {
+    Int(i32),
+    // TODO: How is it possible to absorb a file into program?
+    //       What happens during crash? The captured resources should not
+    //       be able to go away somehow... they should persist on disk.
+    // TODO: floats, strings, files
 }
 
 // TODO: Separate constructors.
@@ -717,16 +789,6 @@ impl Msg {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
-pub enum OperationCode {
-    Add,
-    Sub,
-    Mul,
-    Eq,
-    Clone,
-    Discard,
-}
-
 #[derive(Debug, Clone)]
 pub struct Bindings(Box<Bindings0>);
 
@@ -753,8 +815,6 @@ impl Bindings {
 
 impl Expression {
     fn int(x: i32) -> Self { Self(Rc::new(Expression0::Int(x))) }
-    fn operation_application1(op_code: OperationCode, e0: Self) -> Self { Self(Rc::new(Expression0::OperationApplication1(op_code, e0))) }
-    fn operation_application2(op_code: OperationCode, e0: Self, e1: Self) -> Self { Self(Rc::new(Expression0::OperationApplication2(op_code, e0, e1))) }
     fn call(fn_name: FunctionName, args: Vec<Self>) -> Self { Self(Rc::new(Expression0::Call(fn_name, args))) }
     fn tag(tag: Tag) -> Self { Self(Rc::new(Expression0::Tag(tag))) }
     fn tagged(tag: Tag, e: Expression) -> Self { Self(Rc::new(Expression0::Tagged(tag, e))) }
@@ -779,6 +839,12 @@ pub enum Value {
     Tuple(Vec<Value>), // Would be cool if we could use Box<[Value]>, since we don't need to resize
 
     Closure(Closure),
+}
+
+// TODO:
+#[derive(Debug)]
+pub enum PrimitiveValue {
+    Int(i32),
 }
 
 #[derive(Debug)]
@@ -823,6 +889,28 @@ impl Value {
                 (Tuple(values0), Tuple(values1))
             },
             Closure { .. } => todo!(), // this should crash
+        }
+    }
+
+    fn eq_consuming(self, y: Self) -> Self {
+        fn eq(x0: Value, x1: Value) -> bool {
+            match (x0, x1) {
+                (Value::Int(x0), Value::Int(x1)) => x0 == x1, 
+                (Value::Tag(tag0), Value::Tag(tag1)) => tag0 == tag1,
+                (Value::Tagged(tag0, v0), Value::Tagged(tag1, v1)) => tag0 == tag1 && eq(*v0, *v1),
+                (Value::Tuple(vs0), Value::Tuple(vs1)) => {
+                    for (v0, v1) in vs0.into_iter().zip(vs1) {
+                        if !eq(v0, v1) { return false }
+                    }
+                    return true
+                },
+                _ => panic!(),
+            }
+        }
+        if eq(self, y) {
+            Value::Tag(Tag::new("T".to_string()))
+        } else {
+            Value::Tag(Tag::new("F".to_string()))
         }
     }
 
@@ -1074,49 +1162,6 @@ fn eval(program: &Program, env: Env, e: &Expression) -> Result<(Env, Value), Err
     use Expression0::*;
     match &(*e.0) {
         Int(x) => Ok((env, Value::Int(*x))),
-        OperationApplication1(code, e0) => {
-            let (env, val0) = eval(program, env, e0)?;
-            use OperationCode::*;
-            Ok((
-                env,
-                match code {
-                    Clone => {
-                        let (v0, v1) = val0.duplicate();
-                        Value::Tuple(vec![v0, v1])
-                    },
-                    Discard => {
-                        let () = val0.discard();
-                        Value::Tuple(vec![])
-                    },
-                    _ => todo!(), // This should crash
-                }
-            ))
-        },
-        OperationApplication2(code, e0, e1) => {
-            let (env, val0) = eval(program, env, e0)?;
-            let (env, val1) = eval(program, env, e1)?;
-            match (val0, val1) {
-                (Value::Int(x0), Value::Int(x1)) => {
-                    use OperationCode::*;
-                    use crate::identifier::Tag;
-                    Ok((
-                        env,
-                        match code {
-                            Add => Value::Int(x0 + x1),
-                            Sub => Value::Int(x0 - x1),
-                            Mul => Value::Int(x0 * x1),
-                            Eq => if x0 == x1 {
-                                Value::Tag(Tag::new("T".to_string()))
-                            } else {
-                                Value::Tag(Tag::new("F".to_string()))
-                            },
-                            Discard | Clone => todo!()
-                        }
-                    ))
-                },
-                _ => todo!(),
-            }
-        },
         Call(fn_name, args) => {
             let mut values: Vec<Value> = Vec::with_capacity(args.len());
             let mut env = env;
@@ -1227,15 +1272,29 @@ fn eval_bindings(program: &Program, mut env: Env, bindings: &Bindings) -> Result
 }
 
 fn apply_function(program: &Program, fn_def: &FunctionDefinition, arg_values: Vec<Value>) -> Result<Value, Error> {
-    let num_of_arguments: usize = fn_def.parameters.len();
-    if num_of_arguments != arg_values.len() {
-        return Err(Error::FunctionCallArityMismatch { fn_name: fn_def.name.clone(), expected: num_of_arguments, received: arg_values.len() })
+    use FunctionDefinition::*;
+    match fn_def {
+        User(fn_def) => {
+            let num_of_arguments: usize = fn_def.parameters.len();
+            if num_of_arguments != arg_values.len() {
+                return Err(Error::FunctionCallArityMismatch { fn_name: fn_def.name.clone(), expected: num_of_arguments, received: arg_values.len() })
+            }
+            
+            let env = Env::new().extend_many(fn_def.parameters.iter().zip(arg_values).map(|(var, val)| (var.clone(), val)));
+            let (env, val) = eval(program, env, &fn_def.body)?;
+            env.consume()?;
+            Ok(val)
+        },
+        Primitive(fn_def) => {
+            let num_of_arguments: usize = fn_def.number_of_parameters;
+            if num_of_arguments != arg_values.len() {
+                return Err(Error::FunctionCallArityMismatch { fn_name: fn_def.name.clone(), expected: num_of_arguments, received: arg_values.len() })
+            }
+
+            let val = (fn_def.fn_)(arg_values);
+            Ok(val)
+        },
     }
-    
-    let env = Env::new().extend_many(fn_def.parameters.iter().zip(arg_values).map(|(var, val)| (var.clone(), val)));
-    let (env, val) = eval(program, env, &fn_def.body)?;
-    env.consume()?;
-    Ok(val)
 }
 
 // ===Sending messages===
