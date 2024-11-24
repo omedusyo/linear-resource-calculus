@@ -1,6 +1,7 @@
 
 cargo build
 
+
 cargo run
 
 ====Cartesian====
