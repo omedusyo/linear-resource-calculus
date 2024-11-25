@@ -9,6 +9,9 @@
   like an environment.
 
 * Move primitive operations into its own module.
+* When evaluating string literal, we clone it to create the value. Is that reasonable?
+  I bet we'll have to have a notion of code as resource that we may not just clone...
+* Allow functions of different arities to have the same name.
 
 * Programs to try to write:
   DONE: Stack

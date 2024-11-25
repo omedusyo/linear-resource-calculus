@@ -572,10 +572,6 @@ pub enum FunctionDefinition {
 }
 
 impl FunctionDefinition {
-    fn user(fn_: UserFunctionDefinition) -> Self {
-        Self::User(fn_)
-    }
-
     fn name(&self) -> &FunctionName {
         use FunctionDefinition::*;
         match self {
@@ -671,6 +667,26 @@ impl Program {
             }),
         );
 
+        let name = FunctionName::new("++".to_string());
+        function_definitions.insert(name.clone(),
+            Primitive(PrimitiveFunctionDefinition {
+                name,
+                number_of_parameters: 2,
+                fn_: Rc::new(|args: Vec<Value>| -> Value {
+                    let mut iter = args.into_iter();
+                    let x = iter.next().unwrap();
+                    let y = iter.next().unwrap();
+                    match (x, y) {
+                        (Value::String(mut x), Value::String(y)) => {
+                            x.push_str(&y);
+                            Value::String(x)
+                        }
+                        _ => todo!()
+                    }
+                }),
+            }),
+        );
+
         let name = FunctionName::new("==".to_string());
         function_definitions.insert(name.clone(),
             Primitive(PrimitiveFunctionDefinition {
@@ -716,7 +732,7 @@ pub struct Expression(pub Rc<Expression0>);
 
 #[derive(Debug)]
 pub enum Expression0 {
-    Int(i32),
+    Lit(Literal),
 
     Call(FunctionName, Vec<Expression>),
 
@@ -738,8 +754,9 @@ pub enum Expression0 {
 }
 
 #[derive(Debug)]
-enum Literals {
+enum Literal {
     Int(i32),
+    String(String),
     // TODO: How is it possible to absorb a file into program?
     //       What happens during crash? The captured resources should not
     //       be able to go away somehow... they should persist on disk.
@@ -814,7 +831,7 @@ impl Bindings {
 }
 
 impl Expression {
-    fn int(x: i32) -> Self { Self(Rc::new(Expression0::Int(x))) }
+    fn int(x: i32) -> Self { Self(Rc::new(Expression0::Lit(Literal::Int(x)))) }
     fn call(fn_name: FunctionName, args: Vec<Self>) -> Self { Self(Rc::new(Expression0::Call(fn_name, args))) }
     fn tag(tag: Tag) -> Self { Self(Rc::new(Expression0::Tag(tag))) }
     fn tagged(tag: Tag, e: Expression) -> Self { Self(Rc::new(Expression0::Tagged(tag, e))) }
@@ -833,6 +850,7 @@ impl Expression {
 #[derive(Debug)]
 pub enum Value {
     Int(i32),
+    String(String),
 
     Tag(Tag),
     Tagged(Tag, Box<Value>),
@@ -858,6 +876,10 @@ impl Value {
         use Value::*;
         match self {
             Int(_x) => (),
+            String(_s) => panic!(), // TODO: Is it reasonable to discard a whole String? Is that a
+                               // discardable thing? It kinda is... but I'm not sure it should be
+                               // implemented here... It would be more appropriate to have the
+                               // discard as a primitive operation special to the string...
             Tag(_tag) => (),
             Tagged(_tag, val) => (*val).discard(),
             Tuple(values) => {
@@ -865,7 +887,7 @@ impl Value {
                     let _ = val.discard();
                 }
             },
-            Closure { .. } => todo!(), // this should crash
+            Closure { .. } => panic!(), // this should crash
         }
     }
 
@@ -874,6 +896,8 @@ impl Value {
         match self {
             Int(x) => (Int(x), Int(x)),
             Tag(tag) => (Tag(tag.clone()), Tag(tag)),
+            String(_s) => panic!(), // TODO: I think this should be exposed as a primitive
+                                    // operation.
             Tagged(tag, val) => {
                 let (val0, val1) = (*val).duplicate();
                 (Tagged(tag.clone(), Box::new(val0)), Tagged(tag, Box::new(val1)))
@@ -951,6 +975,7 @@ fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
     match self {
         Int(x) => write!(f, "{}", x),
         Tag(tag) => write!(f, "{}", tag),
+        String(s) => write!(f, "\"{}\"", s),
         Tagged(tag, val) => write!(f, "{} {}", tag, val),
         Tuple(values) => {
             write!(f, "[")?;
@@ -1161,7 +1186,14 @@ fn eval_consumming(program: &Program, env: Env, e: &Expression) -> Result<Value,
 fn eval(program: &Program, env: Env, e: &Expression) -> Result<(Env, Value), Error> {
     use Expression0::*;
     match &(*e.0) {
-        Int(x) => Ok((env, Value::Int(*x))),
+        Lit(lit) => {
+            use Literal::*;
+            match lit {
+                Int(x) => Ok((env, Value::Int(*x))),
+                String(s) => Ok((env, Value::String(s.clone()))), // TODO: The clone is weird, right?
+                                                          // Maybe not.
+            }
+        },
         Call(fn_name, args) => {
             let mut values: Vec<Value> = Vec::with_capacity(args.len());
             let mut env = env;
