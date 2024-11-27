@@ -172,3 +172,21 @@ send[init-server-0[], @inc @inc @reset @add 5]
 
 let { y = 1 . obj { [x0, x1] . +[%x0, +[%x1, %y]] } }
 
+
+switch[]
+
+send[switch[], @flip]
+
+send[switch[], @measure]
+
+◊str{hello ,world!\n}
+
+◊str{hello, world ⊗ ⅋ ⊕ ⊥ }
+
+
+◊f32{123.1230}
+
+◊f32{0.31415E1}
+
+
+

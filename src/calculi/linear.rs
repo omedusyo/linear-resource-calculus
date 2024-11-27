@@ -1,7 +1,7 @@
 use std::fmt;
 use std::rc::Rc;
 use rpds::Queue; // immutable queue
-use crate::tokenizer::{TokenStream, Token, TokenType};
+use crate::tokenizer::{TokenStream, Token, TokenType, EscapedContent, EscapedContentMode};
 use crate::syntax::{
     anyidentifier, anytoken, identifier, token, peek_anytoken, peek_token, vector, delimited_nonempty_vector, delimited_vector,
     parameter_vector, or_vector, comma_vector, binding_vector, parens, brackets, curly_braces, 
@@ -443,6 +443,13 @@ pub fn parse_expression(input: TokenStream) -> IResult0<Expression> {
         OpenParen => {
             todo!("Unexpected `(` in linear calculus.")
         },
+        Escaped(content) => {
+            use EscapedContent::*;
+            match content {
+                Float(x) => Ok((input, Expression::float(x))),
+                String(s) => Ok((input, Expression::string(s))),
+            }
+        },
         Identifier(identifier) => {
             match &identifier[..] {
                 "let" => {
@@ -808,6 +815,8 @@ impl Bindings {
 
 impl Expression {
     fn int(x: i32) -> Self { Self(Rc::new(Expression0::Lit(Literal::Int(x)))) }
+    fn float(x: f32) -> Self { Self(Rc::new(Expression0::Lit(Literal::Float(x)))) }
+    fn string(s: String) -> Self { Self(Rc::new(Expression0::Lit(Literal::String(s)))) }
     fn call(fn_name: FunctionName, args: Vec<Self>) -> Self { Self(Rc::new(Expression0::Call(fn_name, args))) }
     fn tag(tag: Tag) -> Self { Self(Rc::new(Expression0::Tag(tag))) }
     fn tagged(tag: Tag, e: Expression) -> Self { Self(Rc::new(Expression0::Tagged(tag, e))) }
