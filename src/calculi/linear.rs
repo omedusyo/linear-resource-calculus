@@ -20,24 +20,6 @@ use crate::duality::{
 };
 
 // ===parser===
-fn parse_arg_list2(input: TokenStream) -> IResult0<(Expression, Expression)> {
-    // "[e0, e1]  "
-    let (input, _) = token(TokenType::OpenBracket)(input)?;
-    let (input, e0) = parse_expression(input)?;
-    let (input, _) = token(TokenType::Comma)(input)?;
-    let (input, e1) = parse_expression(input)?;
-    let (input, _) = token(TokenType::CloseBracket)(input)?;
-    Ok((input, (e0, e1)))
-}
-
-fn parse_arg_list1(input: TokenStream) -> IResult0<Expression> {
-    // "[e0]  "
-    let (input, _) = token(TokenType::OpenBracket)(input)?;
-    let (input, e0) = parse_expression(input)?;
-    let (input, _) = token(TokenType::CloseBracket)(input)?;
-    Ok((input, e0))
-}
-
 // No parens, just a possibly empty comma separated list of expressions.
 fn expression_vector(input: TokenStream) -> IResult0<Vec<Expression>> {
     comma_vector(parse_expression)(input)
@@ -96,13 +78,6 @@ pub fn parse_function_definition(input: TokenStream) -> IResult0<FunctionDefinit
 // x, [[y0, y1], z], w
 fn parse_pattern_sequence(input: TokenStream) -> IResult0<Vec<Pattern>> {
     comma_vector(parse_pattern)(input)
-}
-
-// [x, y, z]
-// [x, [y0, y1], [[]]]
-// [x, [[y0, y1], z], w]
-fn parse_tuple_pattern(input: TokenStream) -> IResult0<Vec<Pattern>> {
-    brackets(parse_pattern_sequence)(input)
 }
 
 // var
@@ -756,6 +731,7 @@ pub enum Expression0 {
 #[derive(Debug)]
 enum Literal {
     Int(i32),
+    Float(f32),
     String(String),
     // TODO: How is it possible to absorb a file into program?
     //       What happens during crash? The captured resources should not
@@ -850,6 +826,7 @@ impl Expression {
 #[derive(Debug)]
 pub enum Value {
     Int(i32),
+    Float(f32),
     String(String),
 
     Tag(Tag),
@@ -876,6 +853,7 @@ impl Value {
         use Value::*;
         match self {
             Int(_x) => (),
+            Float(_x) => (),
             String(_s) => panic!(), // TODO: Is it reasonable to discard a whole String? Is that a
                                // discardable thing? It kinda is... but I'm not sure it should be
                                // implemented here... It would be more appropriate to have the
@@ -895,6 +873,7 @@ impl Value {
         use Value::*;
         match self {
             Int(x) => (Int(x), Int(x)),
+            Float(x) => (Float(x), Float(x)),
             Tag(tag) => (Tag(tag.clone()), Tag(tag)),
             String(_s) => panic!(), // TODO: I think this should be exposed as a primitive
                                     // operation.
@@ -919,6 +898,8 @@ impl Value {
     fn eq_consuming(self, y: Self) -> Self {
         fn eq(x0: Value, x1: Value) -> bool {
             match (x0, x1) {
+                // Note how Float is not included. That's because we shouldn't have float equality
+                // without specifying error tolerance.
                 (Value::Int(x0), Value::Int(x1)) => x0 == x1, 
                 (Value::Tag(tag0), Value::Tag(tag1)) => tag0 == tag1,
                 (Value::Tagged(tag0, v0), Value::Tagged(tag1, v1)) => tag0 == tag1 && eq(*v0, *v1),
@@ -974,6 +955,7 @@ fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
     use Value::*;
     match self {
         Int(x) => write!(f, "{}", x),
+        Float(x) => write!(f, "{}", x),
         Tag(tag) => write!(f, "{}", tag),
         String(s) => write!(f, "\"{}\"", s),
         Tagged(tag, val) => write!(f, "{} {}", tag, val),
@@ -1190,6 +1172,7 @@ fn eval(program: &Program, env: Env, e: &Expression) -> Result<(Env, Value), Err
             use Literal::*;
             match lit {
                 Int(x) => Ok((env, Value::Int(*x))),
+                Float(x) => Ok((env, Value::Float(*x))),
                 String(s) => Ok((env, Value::String(s.clone()))), // TODO: The clone is weird, right?
                                                           // Maybe not.
             }

@@ -13,6 +13,8 @@
   I bet we'll have to have a notion of code as resource that we may not just clone...
 * Allow functions of different arities to have the same name.
 
+* Bug: There is a problem with message @read. Same probably with @clone @drop. Should probably handle tokenization better.
+
 * Programs to try to write:
   DONE: Stack
   Queue objects, or some other classic ephemeral data-structure/object
