@@ -602,9 +602,9 @@ impl Program {
                     let x = iter.next().unwrap();
                     let y = iter.next().unwrap();
                     match (x, y) {
-                        (Value::Int(x), Value::Int(y)) => {
-                            Value::Int(x + y)
-                        }
+                        (Value::Int(x), Value::Int(y)) => { Value::Int(x + y) },
+                        (Value::Float(x), Value::Float(y)) => { Value::Float(x + y) },
+                        (Value::String(mut x), Value::String(y)) => { x.push_str(&y); Value::String(x) },
                         _ => todo!()
                     }
                 }),
@@ -621,9 +621,8 @@ impl Program {
                     let x = iter.next().unwrap();
                     let y = iter.next().unwrap();
                     match (x, y) {
-                        (Value::Int(x), Value::Int(y)) => {
-                            Value::Int(x - y)
-                        }
+                        (Value::Int(x), Value::Int(y)) => { Value::Int(x - y) }
+                        (Value::Float(x), Value::Float(y)) => { Value::Float(x - y) }
                         _ => todo!()
                     }
                 }),
@@ -640,16 +639,15 @@ impl Program {
                     let x = iter.next().unwrap();
                     let y = iter.next().unwrap();
                     match (x, y) {
-                        (Value::Int(x), Value::Int(y)) => {
-                            Value::Int(x * y)
-                        }
+                        (Value::Int(x), Value::Int(y)) => { Value::Int(x * y) }
+                        (Value::Float(x), Value::Float(y)) => { Value::Float(x * y) }
                         _ => todo!()
                     }
                 }),
             }),
         );
 
-        let name = FunctionName::new("++".to_string());
+        let name = FunctionName::new("div".to_string());
         function_definitions.insert(name.clone(),
             Primitive(PrimitiveFunctionDefinition {
                 name,
@@ -659,10 +657,80 @@ impl Program {
                     let x = iter.next().unwrap();
                     let y = iter.next().unwrap();
                     match (x, y) {
-                        (Value::String(mut x), Value::String(y)) => {
-                            x.push_str(&y);
-                            Value::String(x)
-                        }
+                        (Value::Int(x), Value::Int(y)) => { Value::Int(x / y) }
+                        (Value::Float(x), Value::Float(y)) => { Value::Float(x / y) }
+                        _ => todo!()
+                    }
+                }),
+            }),
+        );
+
+        let name = FunctionName::new("distance".to_string());
+        function_definitions.insert(name.clone(),
+            Primitive(PrimitiveFunctionDefinition {
+                name,
+                number_of_parameters: 2,
+                fn_: Rc::new(|args: Vec<Value>| -> Value {
+                    let mut iter = args.into_iter();
+                    let x = iter.next().unwrap();
+                    let y = iter.next().unwrap();
+                    match (x, y) {
+                        (Value::Int(x), Value::Int(y)) => { Value::Int((x - y).abs()) }
+                        (Value::Float(x), Value::Float(y)) => { Value::Float((x - y).abs()) }
+                        _ => todo!()
+                    }
+                }),
+            }),
+        );
+
+        let name = FunctionName::new("mod".to_string());
+        function_definitions.insert(name.clone(),
+            Primitive(PrimitiveFunctionDefinition {
+                name,
+                number_of_parameters: 2,
+                fn_: Rc::new(|args: Vec<Value>| -> Value {
+                    let mut iter = args.into_iter();
+                    let x = iter.next().unwrap();
+                    let y = iter.next().unwrap();
+                    match (x, y) {
+                        (Value::Int(x), Value::Int(y)) => { Value::Int(x % y) }
+                        (Value::Float(x), Value::Float(y)) => { Value::Float(x % y) }
+                        _ => todo!()
+                    }
+                }),
+            }),
+        );
+
+        let name = FunctionName::new("<=".to_string());
+        function_definitions.insert(name.clone(),
+            Primitive(PrimitiveFunctionDefinition {
+                name,
+                number_of_parameters: 2,
+                fn_: Rc::new(|args: Vec<Value>| -> Value {
+                    let mut iter = args.into_iter();
+                    let x = iter.next().unwrap();
+                    let y = iter.next().unwrap();
+                    match (x, y) {
+                        (Value::Int(x), Value::Int(y)) => { if x <= y { Value::Tag(Tag::new("T".to_string())) } else { Value::Tag(Tag::new("F".to_string())) } }
+                        (Value::Float(x), Value::Float(y)) => { if x <= y { Value::Tag(Tag::new("T".to_string())) } else { Value::Tag(Tag::new("F".to_string())) } }
+                        _ => todo!()
+                    }
+                }),
+            }),
+        );
+
+        let name = FunctionName::new("<".to_string());
+        function_definitions.insert(name.clone(),
+            Primitive(PrimitiveFunctionDefinition {
+                name,
+                number_of_parameters: 2,
+                fn_: Rc::new(|args: Vec<Value>| -> Value {
+                    let mut iter = args.into_iter();
+                    let x = iter.next().unwrap();
+                    let y = iter.next().unwrap();
+                    match (x, y) {
+                        (Value::Int(x), Value::Int(y)) => { if x < y { Value::Tag(Tag::new("T".to_string())) } else { Value::Tag(Tag::new("F".to_string())) } }
+                        (Value::Float(x), Value::Float(y)) => { if x < y { Value::Tag(Tag::new("T".to_string())) } else { Value::Tag(Tag::new("F".to_string())) } }
                         _ => todo!()
                     }
                 }),

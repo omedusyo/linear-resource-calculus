@@ -516,10 +516,12 @@ pub fn parse_token(input: &str) -> IResult<&str, Token> {
             match mode {
                 String => {
                     let (input, str) = parse_string(input)?;
+                    let (input, _) = whitespace(input)?;
                     Ok((input, Token::Escaped(EscapedContent::String(str))))
                 },
                 Float => {
                     let (input, x) = parse_float(input)?;
+                    let (input, _) = whitespace(input)?;
                     Ok((input, Token::Escaped(EscapedContent::Float(x))))
                 },
             }

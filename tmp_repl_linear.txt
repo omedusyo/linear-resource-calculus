@@ -183,10 +183,27 @@ send[switch[], @measure]
 
 ◊str{hello, world ⊗ ⅋ ⊕ ⊥ }
 
-
 ◊f32{123.1230}
 
 ◊f32{0.31415E1}
 
++[◊str{hello}, ◊str{, world}]
 
+*[ ◊f32{12.5}, ◊f32{13.3} ]
+
+div[6, 2]
+
+mod[7, 5]
+
+distance[7, 3]
+
+distance[3, 7]
+
+distance[-3, 7]
+
+mod[◊f32{7}, ◊f32{5.5}]
+
+send[sqrt[◊f32{2.0}], ]
+
+send[sqrt[◊f32{2.0}], @improve @improve @improve @improve @improve @improve @improve @improve]
 
