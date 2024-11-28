@@ -65,28 +65,12 @@ fn incrementing-server[] { obj {
 }}
 
 fn range-iter[n, i] { 
-  let {
-  , [n-copy, n] = dup[%n] 
-  , [i-copy, i] = dup[%i]
-  . match ==[%n, %i] {
-    | #T .
-      let {
-      , [] = discard[%n-copy]
-      , [] = discard[%i-copy]
-      . #nil
-      }
-    | #F . let { [i-copy, i] = dup[%i-copy] . #cons[%i-copy, range-iter[%n-copy, +[%i, 1]]] }
-    }
-  }
-}
-
-fn range-iter-simpler[n, i] { 
   match ==[clone n, clone i] {
   | #T .
       drop n .
       drop i .
       #nil
-  | #F . #cons[clone i, range-iter-simpler[%n, +[%i, 1]]]
+  | #F . #cons[clone i, range-iter[%n, +[%i, 1]]]
   }
 }
 

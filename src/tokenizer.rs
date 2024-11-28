@@ -1,8 +1,12 @@
 use crate::{IResult0, IResult};
 use nom::{
-  bytes::complete::take_while,
+  bytes::complete::{take_while, tag},
+  branch::alt,
   combinator::{peek, verify},
-  character::complete::{char, anychar, i32, multispace0},
+  character::complete::{char, anychar, i32, multispace0, hex_digit1},
+  number::complete::{
+      float,
+  },
 };
 
 #[derive(Debug, PartialEq)]
@@ -25,6 +29,7 @@ pub enum Token {
     ConstructorSymbol,
     MessageSymbol,
     Int(i32),
+    Escaped(EscapedContent),
     End,
 }
 
@@ -48,7 +53,30 @@ pub enum TokenType {
     ConstructorSymbol,
     MessageSymbol,
     Int,
+    Escaped(EscapedContentMode),
     End,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum EscapedContent {
+    Float(f32),
+    String(String),
+}
+
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub enum EscapedContentMode {
+    Float,
+    String,
+}
+
+impl EscapedContent {
+    pub fn mode(&self) -> EscapedContentMode {
+        use EscapedContent::*;
+        match self {
+            Float(_) => EscapedContentMode::Float,
+            String(_) => EscapedContentMode::String,
+        }
+    }
 }
 
 impl Token {
@@ -73,6 +101,7 @@ impl Token {
             ConstructorSymbol => TokenType::ConstructorSymbol,
             MessageSymbol => TokenType::MessageSymbol,
             Int(_) => TokenType::Int,
+            Escaped(x) => TokenType::Escaped(x.mode()),
             End => TokenType::End,
         }
     }
@@ -98,6 +127,7 @@ impl Token {
             ConstructorSymbol => true,
             MessageSymbol => false,
             Int(_) => true,
+            Escaped(_) => true,
             End => false,
         }
     }
@@ -109,7 +139,7 @@ impl Token {
 
 fn is_forbiden_char(c: char) -> bool {
     match c {
-        '(' | ')' | '[' | ']'| '{' | '}' | '.' | ',' | '|' | '$' | '%' | '#' | '@' | ' ' | '\t' | '\r' | '\n' => true,
+        '(' | ')' | '[' | ']'| '{' | '}' | '.' | ',' | '|' | '$' | '%' | '#' | '@' | ' ' | '◊' | '\t' | '\r' | '\n' => true,
         _ => false,
     }
 }
@@ -282,6 +312,123 @@ pub fn parse_identifier(input: &str) -> IResult<&str, String> {
     }
 }
 
+pub fn parse_string(input: &str) -> IResult<&str, String> {
+    let (mut input, _) = char('{')(input)?;
+    let mut chars: Vec<char> = vec![];
+    let mut c;
+    loop {
+        (input, c) = anychar(input)?;
+        match c {
+            '\\' => {
+                (input, c) = anychar(input)?;
+                match c {
+                    '\\' => chars.push('\\'),
+                    '{' => chars.push('{'),
+                    '}' => chars.push('}'),
+                    'n' => chars.push('\n'),
+                    't' => chars.push('\t'),
+                    'u' => {
+                        (input, _) = char('{')(input)?;
+
+                        let (input0, digits) = hex_digit1(input)?;
+                        input = input0;
+                        let x = u32::from_str_radix(digits, 16).unwrap();
+
+                        (input, _) = char('}')(input)?;
+
+                        match char::from_u32(x) {
+                            Some(c) => chars.push(c),
+                            None => todo!("Expected Valid Unicode Sequence in String Literal"),
+                        }
+                    }
+                    _c => todo!("Expected Valid Character After Escape Sequence In String Literal"),
+                }
+            },
+            '}' => {
+                break
+            },
+            c => chars.push(c),
+        }
+    }
+    let str =  chars.into_iter().collect();
+    Ok((input, str))
+}
+
+#[cfg(test)]
+#[test]
+fn test_string() {
+    let input = "{foo} ";
+    let result = parse_string(input);
+    assert!(matches!(result, Ok((" ", _))));
+    let (_, str) = result.unwrap();
+    assert!(str == "foo");
+
+    let input = "{} ";
+    let result = parse_string(input);
+    assert!(matches!(result, Ok((" ", _))));
+    let (_, str) = result.unwrap();
+    assert!(str == "");
+
+    let input = "{foo ⊗ } ";
+    let result = parse_string(input);
+    assert!(matches!(result, Ok((" ", _))));
+    let (_, str) = result.unwrap();
+    assert!(str == "foo ⊗ ");
+
+    let input = "{foo \u{2297}} ";
+    let result = parse_string(input);
+    assert!(matches!(result, Ok((" ", _))));
+    let (_, str) = result.unwrap();
+    assert!(str == "foo \u{2297}");
+}
+
+fn parse_float(input: &str) -> IResult<&str, f32> {
+    let (input, _) = char('{')(input)?;
+    let (input, x) = float(input)?;
+    let (input, _) = char('}')(input)?;
+    Ok((input, x))
+}
+
+#[cfg(test)]
+#[test]
+fn test_float() {
+    let eps = 0.0000001;
+
+    let input = "{123.0} ";
+    let result = parse_float(input);
+    assert!(matches!(result, Ok((" ", _))));
+    let (_, x) = result.unwrap();
+    assert!((x - 123.0).abs() < eps);
+                         //
+    let input = "{123} ";
+    let result = parse_float(input);
+    assert!(matches!(result, Ok((" ", _))));
+    let (_, x) = result.unwrap();
+    assert!((x - 123.0).abs() < eps);
+
+    let input = "{123e0} ";
+    let result = parse_float(input);
+    assert!(matches!(result, Ok((" ", _))));
+    let (_, x) = result.unwrap();
+    assert!((x - 123.0).abs() < eps);
+
+    let input = "{12.3e1} ";
+    let result = parse_float(input);
+    assert!(matches!(result, Ok((" ", _))));
+    let (_, x) = result.unwrap();
+    assert!((x - 123.0).abs() < eps);
+}
+
+fn parse_escaped_content_mode(input: &str) -> IResult<&str, EscapedContentMode> {
+    // TODO: This is terrible
+    let (input, x) = alt((tag("f32"), tag("str")))(input)?;
+    match x {
+        "f32" => Ok((input, EscapedContentMode::Float)),
+        "str" => Ok((input, EscapedContentMode::String)),
+        _ => unreachable!(),
+    }
+}
+
 //   "let { inc = fn { x . add($x, 1) } . app($inc, 5) }"
 // ~>
 //   [Id("let"), '{', Id("inc"), '=', Id("fn"), '{', Id("x"), BindingSeparator, Id("add"), '(', '$', Id("x"), Int(1), ')', '}', BindingSeparator, Id("app"), '(', '$', Id("inc"), Int(5), ')', '}']
@@ -357,6 +504,27 @@ pub fn parse_token(input: &str) -> IResult<&str, Token> {
             let (input, _) = anychar(input)?;
             // Note how there's no consumption of whitespace.
             Ok((input, Token::MessageSymbol))
+        },
+        '◊' => {
+            // Note how there's no consumption of whitespace.
+            let (input, _) = anychar(input)?;
+
+            let (input, mode) = parse_escaped_content_mode(input)?;
+            // If this is `"`, then we have a string
+            // If this is `f`, then we have a float
+            use EscapedContentMode::*;
+            match mode {
+                String => {
+                    let (input, str) = parse_string(input)?;
+                    let (input, _) = whitespace(input)?;
+                    Ok((input, Token::Escaped(EscapedContent::String(str))))
+                },
+                Float => {
+                    let (input, x) = parse_float(input)?;
+                    let (input, _) = whitespace(input)?;
+                    Ok((input, Token::Escaped(EscapedContent::Float(x))))
+                },
+            }
         },
         // TODO: We should allow '-' as a name on its own. We need to check the char following '-'
         // is not a digit, in which case we are looking at identifier.

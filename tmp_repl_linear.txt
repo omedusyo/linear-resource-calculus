@@ -1,0 +1,209 @@
+
+====Linear====
+
+cargo run repl linear
+
+:load program2.pmd.linear
+
+:r
+
+[+[5, 6], 2]
+
+:def fn mul_5[x] { *[%x, 5] }
+
+mul_5[6]
+
+
+:def fn pm[x] { match %x { #foo x . %x } }
+
+match #foo #bar [1,[50, 2]] { #foo #bar [x, [y, z]] . [%y, %x, %z] }
+
+match #a #a1 [3, 4] { #a { #a0 . 123 | #a1 [x, y]. [%y, %x] }   }
+
+pm[#foo 123]
+
+
+:list fn
+
+:r
+
+obj { @next . 123 | @foo . 3112 }
+
+send[obj { @next . 123 | @foo . 3112 }, @foo]
+
+obj { @next { @bar . 123 | @q . 13} }
+
+send[obj { @next { @bar . 123 | @q . 13} }, @next @q]
+
+send[obj { x y. +[%x, %y] }, 123]
+
+send[send[obj { x y. +[%x, %y] }, 123], 512]
+
+send[obj { x y. +[%x, %y] }, 123 512]
+
+send[obj { x y. +[%x, %y] }, 123 512 12]
+
+send[obj { . 123 }]
+
+send[example_tuple_0[], @fst]
+
+
+example_tuple_0[]
+
+#fst[]
+
+
+cut { x = 123 . %x }
+
+cut { x = 123 . move x }
+
+cut { x = 123 . [clone x, %x] }
+
+cut { x = 123 . [clone x, move x] }
+
+cut { x = 123 . [%x, clone x] }
+
+cut { x = 123 . [] }
+
+cut { x = 123 . drop x . [] }
+
+
+
+example_tuple_1[]
+
+:r
+
+range-iter[5, 0]
+
+range-iter-simpler[5, 0]
+
+match ==[1,2] { #T . 123 | #F . 512 }
+
+match #T { #T . 123 | #F . 512 }
+
+:def fn f[x] { %x }
+
+
+obj { @foo[] . 123 }
+
+nats[0]
+
+send[nats[0], @tl @tl @tl @hd]
+
+send[nats[0], @tl @tl @tl @hd]
+
+send[nats[0], @tl @hd]
+
+
+send[incrementing-server[], @inc 5 ]
+
+
+==[5, 0]
+
+incrementing-server[]
+
+range-iter[5, 0]
+
+range-iter-simpler[5, 0]
+
+map-server[incrementing-server[], range-iter[5, 0]]
+
+:r
+
+fib[5, 0]
+
+
+dup_nat[#succ #succ #zero]
+
+
+match #succ #zero { #succ n . %n }
+
+match match #succ #zero { #succ n . #succ %n } { #succ n . #succ %n }
+
+
+// I probably want to add a tuple somewhere, but where?
+
+match #succ #zero { #succ n . %n }
+
+match #succ [123] { #succ [n] . %n }
+
+match [123] { [n] . %n }
+
+// I need a builtin dup  that will clone inductive stuff, but will fail on objects
+
+dup[#cons[5, #nil[]]]
+
+fib[0, 1]
+
+send[fib[0, 1], @next]
+
+let { [x, f] = send[fib[3, 5], @next]  . [%x, send[%f, @next]] }
+
+let { [x, f] = send[fib[3, 5], @next]  . [%x, let { [x, f] = send[%f, @next] . [%x, send[%f, @next]] }] }
+
+
+observe-stream[fib[0, 1], 0]
+
+observe-stream[fib[0, 1], 11]
+
+
+cut { x = 123 . %x }
+
+cut { x = 123, y = 512 . [%y, %x] }
+
+let {. 123 }
+
+let {,,, . 123 }
+
+let { x = 123 . %x }
+
+let { x = 123, y = 512 . [%y, %x] }
+
+
+
+let { x = 123, y = 512 . [cut { a = %x . %a }, cut { b = %y . %b }] }
+
+
+cut { [x, y] = [20, 30] . [%y, %x] }
+
+cut { [[[x]], [y, z]] = [[[20]], [30, 40]] . [%y, %x, %z] }
+
+send[init-server-0[], @inc @inc @reset @add 5]
+
+let { y = 1 . obj { [x0, x1] . +[%x0, +[%x1, %y]] } }
+
+
+switch[]
+
+send[switch[], @flip]
+
+send[switch[], @measure]
+
+◊str{hello ,world!\n}
+
+◊str{hello, world ⊗ ⅋ ⊕ ⊥ }
+
+◊f32{123.1230}
+
+◊f32{0.31415E1}
+
++[◊str{hello}, ◊str{, world}]
+
+*[ ◊f32{12.5}, ◊f32{13.3} ]
+
+div[6, 2]
+
+mod[7, 5]
+
+distance[7, 3]
+
+distance[3, 7]
+
+distance[-3, 7]
+
+mod[◊f32{7}, ◊f32{5.5}]
+
+send[sqrt[◊f32{2.0}], ]
+
+send[sqrt[◊f32{2.0}], @improve @improve @improve @improve @improve @improve @improve @improve]
+
